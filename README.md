@@ -6,7 +6,7 @@ built for HFT / market-making workloads.
 - **Module:** `github.com/tonymontanov/go-kucoin/v2`
 - **Go:** 1.24+
 - **API target:** KuCoin **Classic** API (not the new UTA / unified-account family)
-- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5 Phase A — Margin** (HF cross/isolated) implemented & offline-tested on the `v2.5` branch (live-validation pending).
+- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5 Phase A — Margin** (HF cross/isolated, `v2.2.0`) and **Phase B — Account & Funding** (`v2.3.0`) implemented & offline-tested on the `v2.5` branch (live-validation pending).
 
 The design mirrors the sibling in-house SDKs (`go-okx` / `go-bybit` / `go-bitget`):
 a neutral transport core plus thin, section-specific profiles.
@@ -98,6 +98,34 @@ its own signed transport sharing the root signer + observers).
 - Private: margin order lifecycle on the spot/margin `tradeOrders` channel (filter by `TradeType`)
 
 _Deferred fast-follows: stop/OCO margin orders, the margin lending market ("Credit")._
+
+---
+
+## Features (Account & Funding v2.5 — Phase B)
+
+> Additive `account/` profile (on the `v2.5` branch) — the cross-cutting
+> "treasury" layer on the spot host (`api.kucoin.com`). The futures-host account
+> endpoints (account overview, transaction history, futures transfers) stay in
+> the `futures/` profile and are not duplicated here.
+
+**Account (REST)**
+- Account summary (`/api/v2/user-info`), API-key info (`/api/v1/user/api-key`)
+- Spot wallet list / detail (`/api/v1/accounts`), spot/margin ledgers (paged)
+
+**Deposit (REST)**
+- Create + list v3 deposit addresses, deposit history
+
+**Withdrawal (REST)**
+- Quotas, submit (v3 `/api/v3/withdrawals`), cancel, history + by-id
+
+**Transfer (REST)**
+- Transferable balance, v3 flex/universal transfer between wallets and master/sub (plus an `InnerTransfer` convenience)
+
+**Fee & currencies (REST)**
+- Account base spot/margin fee, actual per-symbol trade fees (≤10 symbols)
+- Public v3 currency directory (all + one): chains, precisions, withdraw/deposit minimums
+
+_Deferred fast-follows: sub-account management, legacy V1/V2 deposit-address & transfer endpoints, HF/futures ledgers._
 
 ---
 
@@ -221,13 +249,20 @@ kucoin.Client (root)              shared transport + signing + config
   │    ├─ Trading()               place/cancel/batch (size or funds), queries, fills
   │    ├─ Account()               accounts + balance
   │    └─ Stream()                public + private WebSocket
-  └─ margin.Client (profile)      layer 2: api.kucoin.com, HF margin (v2.5)
-       ├─ MarketData()            cross/isolated symbols, mark price, margin config
-       ├─ Trading()               HF place/cancel (cross/isolated), queries, fills
-       ├─ Borrow()                borrow/repay (+ histories), interest, leverage
-       ├─ Account()               cross/isolated accounts (balances + liabilities)
-       ├─ RiskLimit()             cross/isolated risk limit + borrow config
-       └─ Stream()                private margin order WS (book/ticker via spot)
+  ├─ margin.Client (profile)      layer 2: api.kucoin.com, HF margin (v2.5)
+  │    ├─ MarketData()            cross/isolated symbols, mark price, margin config
+  │    ├─ Trading()               HF place/cancel (cross/isolated), queries, fills
+  │    ├─ Borrow()                borrow/repay (+ histories), interest, leverage
+  │    ├─ Account()               cross/isolated accounts (balances + liabilities)
+  │    ├─ RiskLimit()             cross/isolated risk limit + borrow config
+  │    └─ Stream()                private margin order WS (book/ticker via spot)
+  └─ account.Client (profile)     layer 2: api.kucoin.com, treasury (v2.5)
+       ├─ Account()               summary, api-key, wallets, ledgers
+       ├─ Deposit()               v3 addresses + history
+       ├─ Withdrawal()            quotas, v3 withdraw, cancel, history
+       ├─ Transfer()              transferable + v3 flex transfer
+       ├─ Fee()                   base + actual trade fees
+       └─ Currency()              v3 currency directory (chains/precisions)
 ```
 
 - A single neutral core (`internal/*`) handles HTTP transport, the KuCoin
@@ -279,8 +314,8 @@ common branches.
 - ✅ **v1.0 — Futures (USD-M perpetuals):** complete, live-validated, published as `v2.0.0`.
 - ✅ **v2.0 — Spot:** complete, live-validated, published as `v2.1.0`.
 - 🔄 **v2.5 — remaining sections** (additive `v2.5` branch):
-  - **Phase A — Margin** (HF cross/isolated): implemented & offline-tested; live-validation pending → `v2.2.0`.
-  - **Phase B — Account/Funding:** planned (`v2.3.0`).
+  - **Phase A — Margin** (HF cross/isolated): implemented & offline-tested → `v2.2.0`.
+  - **Phase B — Account & Funding:** implemented & offline-tested; live-validation pending → `v2.3.0`.
   - **Phase C — Earn:** planned (`v2.4.0`).
 
 ---

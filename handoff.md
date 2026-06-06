@@ -60,6 +60,8 @@ go-kucoin/
 │   └── types/             # spot-specific + layer-1 aliases
 ├── margin/                # layer-2 Margin profile (v2.5, HF cross/isolated)
 │   └── types/             # margin-specific + layer-1 aliases
+├── account/               # layer-2 Account & Funding profile (v2.5 Phase B)
+│   └── types/             # account/funding-specific + layer-1 aliases
 ├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
@@ -152,8 +154,32 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > verified against KuCoin docs + the official `kucoin-universal-sdk` spec CSV.
 > Build / vet / race green; offline contract + unit tests added. NOT yet
 > live-validated; stop/OCO margin orders and the margin lending market
-> ("Credit": project/purchase/redeem) are deferred fast-follows. To be tagged
+> ("Credit": project/purchase/redeem) are deferred fast-follows. Published as
 > **`v2.2.0`**.
+
+> **Milestone — v2.5 Phase B (Account & Funding) IMPLEMENTED (SDK-only,
+> offline-tested).** New ADDITIVE `account/` profile on `v2.5` — zero changes to
+> `futures/`/`spot/`/`margin/` or shared `internal/` public surface. This is the
+> cross-cutting "treasury" layer on the SPOT host (`api.kucoin.com`, resolved via
+> `kucoin.SpotFamilyBaseURL`). Coverage: Account (summary `/api/v2/user-info`,
+> API-key info `/api/v1/user/api-key`, spot wallet list/detail `/api/v1/accounts`
+> [+`/{id}`], spot/margin ledgers `/api/v1/accounts/ledgers`), Deposit (create +
+> list v3 addresses `/api/v3/deposit-address/create`, `/api/v3/deposit-addresses`,
+> history `/api/v1/deposits`), Withdrawal (quotas, v3 submit `/api/v3/withdrawals`,
+> cancel, history + by-id), Transfer (transferable `/api/v1/accounts/transferable`
+> + v3 flex/universal transfer `/api/v3/accounts/universal-transfer`, with an
+> `InnerTransfer` convenience), Fee (base `/api/v1/base-fee`, actual per-symbol
+> `/api/v1/trade-fees`), Currency (public v3 directory `/api/v3/currencies`
+> [+`/{currency}`] — chains/precisions/withdraw minimums). DESIGN: the SPOT-host
+> account/funding surface only — the FUTURES-host account endpoints
+> (`account-overview`, `transaction-history`, `transfer-in/out`) stay in the
+> `futures/` profile and are intentionally NOT duplicated. Nullable wire decimals
+> (`depositMinSize`/`maxWithdraw`/…) decode to zero. Endpoints/shapes verified
+> against KuCoin docs + the official `kucoin-universal-sdk` spec CSV. Build / vet /
+> race green; offline contract tests added. NOT yet live-validated; sub-account
+> management (create/permissions/API-key CRUD/per-sub balances), legacy V1/V2
+> deposit-address & transfer endpoints, and HF/futures ledgers are deferred. To be
+> tagged **`v2.3.0`**.
 
 ### ✅ Done
 
@@ -314,6 +340,34 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     `client.go`; exported `SpotFamilyBaseURL` host resolver in `config.go`
     (shared by spot-family section profiles).
 
+- `account/` — **layer-2 Account & Funding profile (v2.5 Phase B)**:
+  - `doc.go` — profile overview (cross-cutting treasury, spot-host scope,
+    futures-host endpoints stay in `futures/`, deferred sub-account/V1/V2).
+  - `client.go` — profile client + sub-client factories (`Account`, `Deposit`,
+    `Withdrawal`, `Transfer`, `Fee`, `Currency`) + `init()` factory
+    registration. Builds its own REST client on the spot host via
+    `kucoin.SpotFamilyBaseURL`.
+  - `helpers.go` — REST GET/POST/DELETE wrappers, clientOid gen (`kca-…`),
+    validation + auth error constructors, int/int64 fmt.
+  - `account.go` — summary (`/api/v2/user-info`), API-key info, spot wallet
+    list/detail, spot/margin ledgers (paged).
+  - `deposit.go` — create + list v3 deposit addresses, deposit history.
+  - `withdrawal.go` — quotas, v3 submit, cancel, history + by-id.
+  - `transfer.go` — transferable balance, v3 flex/universal transfer (+
+    `InnerTransfer` convenience).
+  - `fee.go` — account base spot/margin fee, actual per-symbol trade fees.
+  - `currency.go` — public v3 currency directory (all + one), chains/precisions.
+  - `account/types/*` — AccountSummary/ApiKeyInfo/AccountInfo/Ledger(+Query),
+    DepositAddress/Record(+Query), WithdrawalQuota/Request/Record(+Query),
+    TransferableBalance/FlexTransferRequest/Result, BaseFee/TradeFee,
+    Currency/Chain + enums (AccountType, TransferType, WithdrawType,
+    LedgerDirection).
+  - Tests: `contract_rest_test.go` (mock REST end-to-end across account/deposit/
+    withdrawal/transfer/fee/currency; null-decimal + auth-required cases).
+    Race-clean.
+  - Root wiring (additive): `RegisterAccountFactory` + `Client.Account()` in
+    `client.go`.
+
 - **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
   live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
   branch. Spot specifics: size in base currency (not contracts); position =
@@ -329,12 +383,14 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 
 - **v2.5 — remaining sections** on top of the stable Futures + Spot core
   (additive `v2.5` branch):
-  - **Phase A — Margin** (`margin/`): ✅ implemented & offline-tested; awaiting
-    live validation + tag `v2.2.0`. Fast-follows: stop/OCO margin orders, the
-    margin lending market ("Credit").
-  - **Phase B — Account/Funding** (`account/`, planned, `v2.3.0`): account
-    summary/ledgers, transfers, deposit/withdrawal (v3), trade-fee, currencies,
-    sub-accounts.
+  - **Phase A — Margin** (`margin/`): ✅ implemented & offline-tested; tagged
+    `v2.2.0`. Fast-follows: stop/OCO margin orders, the margin lending market
+    ("Credit").
+  - **Phase B — Account/Funding** (`account/`): ✅ implemented & offline-tested;
+    to be tagged `v2.3.0`. Covers account summary/ledgers, transfers (flex v3),
+    deposit/withdrawal (v3), trade-fee, currencies (v3). Deferred fast-follows:
+    sub-account management, legacy V1/V2 deposit-address & transfer endpoints,
+    HF/futures ledgers.
   - **Phase C — Earn** (`earn/`, planned, `v2.4.0`): Earn, VIP Lending, and
     possibly Broker/Affiliate.
 

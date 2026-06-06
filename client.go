@@ -55,6 +55,9 @@ type Client struct {
 
 	marginOnce sync.Once
 	marginVal  any
+
+	accountOnce sync.Once
+	accountVal  any
 }
 
 // NewClient validates cfg, fills defaults, and returns a configured root
@@ -223,6 +226,34 @@ func (c *Client) Margin() any {
 		c.marginVal = marginFactory(c)
 	})
 	return c.marginVal
+}
+
+// accountFactory is set by account.init() via RegisterAccountFactory.
+var accountFactory func(c *Client) any
+
+// RegisterAccountFactory wires the account.Client builder. Idempotent.
+// Available from v2.5 (Account & Funding: balances/ledgers, deposit,
+// withdrawal, transfer, fee, currencies).
+func RegisterAccountFactory(f func(c *Client) any) {
+	if accountFactory == nil {
+		accountFactory = f
+	}
+}
+
+// Account returns the *account.Client (typed as any). nil when the account
+// package has not been imported. Available from v2.5. The account profile is
+// cross-cutting "treasury" on the spot host (api.kucoin.com): account summary
+// / balances / ledgers, deposit & withdrawal, inter-wallet transfers, trade
+// fees and the currency directory.
+func (c *Client) Account() any {
+	c.accountOnce.Do(func() {
+		if accountFactory == nil {
+			c.logger.Warn(`kucoin.Client.Account: account factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/account"`)
+			return
+		}
+		c.accountVal = accountFactory(c)
+	})
+	return c.accountVal
 }
 
 // Compile-time assertion: *Error implements the error interface.

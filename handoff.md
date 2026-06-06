@@ -62,6 +62,10 @@ go-kucoin/
 │   └── types/             # margin-specific + layer-1 aliases
 ├── account/               # layer-2 Account & Funding profile (v2.5 Phase B)
 │   └── types/             # account/funding-specific + layer-1 aliases
+├── earn/                  # layer-2 Earn profile (v2.5 Phase C)
+│   └── types/             # earn-specific types
+├── viplending/            # layer-2 VIP Lending / OTC-loan profile (v2.5 Phase C)
+│   └── types/             # OTC-loan types
 ├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
@@ -178,8 +182,27 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > against KuCoin docs + the official `kucoin-universal-sdk` spec CSV. Build / vet /
 > race green; offline contract tests added. NOT yet live-validated; sub-account
 > management (create/permissions/API-key CRUD/per-sub balances), legacy V1/V2
-> deposit-address & transfer endpoints, and HF/futures ledgers are deferred. To be
-> tagged **`v2.3.0`**.
+> deposit-address & transfer endpoints, and HF/futures ledgers are deferred.
+> Published as **`v2.3.0`**.
+
+> **Milestone — v2.5 Phase C (Earn + VIP Lending) IMPLEMENTED (SDK-only,
+> offline-tested).** Two new ADDITIVE profiles on `v2.5`, both on the SPOT host
+> (`api.kucoin.com`) — zero changes to existing profiles or shared `internal/*`.
+> `earn/`: product catalogues (savings / promotion / staking / KCS-staking /
+> ETH-staking — all share one row shape), Purchase (`POST /api/v1/earn/orders`),
+> Redeem (`DELETE /api/v1/earn/orders`) + redeem-preview, and holdings
+> (`/api/v1/earn/hold-assets`, paged); the small cohesive surface lives directly
+> on the profile client (no sub-clients). `viplending/`: read-only OTC-loan
+> queries — collateral/discount-rate configs (`/api/v1/otc-loan/discount-rate-
+> configs`), consolidated loan position with LTV thresholds + collateral legs
+> (`/api/v1/otc-loan/loan`), and participating accounts (`/api/v1/otc-loan/
+> accounts`). Kept as a SEPARATE profile from `earn/` to match the exchange's
+> service taxonomy (`earn` vs `viplending`). Nullable wire ints (product
+> `lockEndTime`/`applyEndTime`) decode to zero. Shapes verified against KuCoin
+> docs + the official Go SDK / spec. Build / vet / race green; offline contract
+> tests added. NOT yet live-validated; Structured Earn (dual investment) is
+> deferred (KuCoin reports those endpoints as not generally available, 400100).
+> To be tagged **`v2.4.0`**.
 
 ### ✅ Done
 
@@ -368,6 +391,32 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
   - Root wiring (additive): `RegisterAccountFactory` + `Client.Account()` in
     `client.go`.
 
+- `earn/` — **layer-2 Earn profile (v2.5 Phase C)**:
+  - `doc.go` — overview (spot host, signed, deferred Structured Earn).
+  - `client.go` — profile client (flat surface, no sub-clients) + `init()`
+    factory registration; spot host via `kucoin.SpotFamilyBaseURL`.
+  - `helpers.go` — signed REST GET/POST/DELETE wrappers, validation/auth errors.
+  - `products.go` — savings/promotion/staking/kcs-staking/eth-staking (one
+    shared fetch + `Product` converter; `lockEndTime`/`applyEndTime` null→0).
+  - `orders.go` — Purchase, Redeem (+ ConfirmPunishRedeem), RedeemPreview,
+    GetHoldings (paged).
+  - `earn/types/*` — Product, Purchase/Redeem request+result, RedeemPreview,
+    Holding(+Query)/HoldingPage.
+  - Tests: `contract_rest_test.go` (mock REST end-to-end across products/orders/
+    holdings; null-int + auth-required cases). Race-clean.
+  - Root wiring (additive): `RegisterEarnFactory` + `Client.Earn()`.
+
+- `viplending/` — **layer-2 VIP Lending / OTC-loan profile (v2.5 Phase C)**:
+  - `doc.go` — overview (spot host, read-only OTC-loan queries).
+  - `client.go` — profile client + inline signed-GET helper + `init()` factory.
+  - `viplending.go` — GetCollateralConfigs, GetLoanInfo (orders + LTV +
+    collateral legs), GetAccounts.
+  - `viplending/types/*` — DiscountRateConfig/DiscountLevel, LoanInfo (LoanOrder,
+    LTV, MarginAsset), LendingAccount.
+  - Tests: `contract_rest_test.go` (mock REST end-to-end; auth-required).
+    Race-clean.
+  - Root wiring (additive): `RegisterVIPLendingFactory` + `Client.VIPLending()`.
+
 - **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
   live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
   branch. Spot specifics: size in base currency (not contracts); position =
@@ -391,8 +440,10 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     deposit/withdrawal (v3), trade-fee, currencies (v3). Deferred fast-follows:
     sub-account management, legacy V1/V2 deposit-address & transfer endpoints,
     HF/futures ledgers.
-  - **Phase C — Earn** (`earn/`, planned, `v2.4.0`): Earn, VIP Lending, and
-    possibly Broker/Affiliate.
+  - **Phase C — Earn + VIP Lending** (`earn/`, `viplending/`): ✅ implemented &
+    offline-tested; to be tagged `v2.4.0`. Earn products/purchase/redeem/holdings
+    + OTC-loan read queries. Deferred: Structured Earn (dual investment), and
+    possibly Broker/Affiliate/Copy-trading in a later phase.
 
 ### ✅ Reconciled against live API (v1.0)
 Wire field names below were taken from KuCoin docs + official SDKs and have

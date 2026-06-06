@@ -58,6 +58,12 @@ type Client struct {
 
 	accountOnce sync.Once
 	accountVal  any
+
+	earnOnce sync.Once
+	earnVal  any
+
+	vipLendingOnce sync.Once
+	vipLendingVal  any
 }
 
 // NewClient validates cfg, fills defaults, and returns a configured root
@@ -254,6 +260,60 @@ func (c *Client) Account() any {
 		c.accountVal = accountFactory(c)
 	})
 	return c.accountVal
+}
+
+// earnFactory is set by earn.init() via RegisterEarnFactory.
+var earnFactory func(c *Client) any
+
+// RegisterEarnFactory wires the earn.Client builder. Idempotent.
+// Available from v2.5 (KuCoin Earn: products, purchase/redeem, holdings).
+func RegisterEarnFactory(f func(c *Client) any) {
+	if earnFactory == nil {
+		earnFactory = f
+	}
+}
+
+// Earn returns the *earn.Client (typed as any). nil when the earn package has
+// not been imported. Available from v2.5. The earn profile lives on the spot
+// host (api.kucoin.com) and covers KuCoin Earn: product catalogues (savings /
+// promotion / staking / KCS / ETH), subscribe (purchase) / redeem (+ preview)
+// and current holdings.
+func (c *Client) Earn() any {
+	c.earnOnce.Do(func() {
+		if earnFactory == nil {
+			c.logger.Warn(`kucoin.Client.Earn: earn factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/earn"`)
+			return
+		}
+		c.earnVal = earnFactory(c)
+	})
+	return c.earnVal
+}
+
+// vipLendingFactory is set by viplending.init() via RegisterVIPLendingFactory.
+var vipLendingFactory func(c *Client) any
+
+// RegisterVIPLendingFactory wires the viplending.Client builder. Idempotent.
+// Available from v2.5 (KuCoin VIP Lending / OTC loan, read-only queries).
+func RegisterVIPLendingFactory(f func(c *Client) any) {
+	if vipLendingFactory == nil {
+		vipLendingFactory = f
+	}
+}
+
+// VIPLending returns the *viplending.Client (typed as any). nil when the
+// viplending package has not been imported. Available from v2.5. The profile
+// lives on the spot host (api.kucoin.com) and exposes the read-only OTC-loan
+// queries: collateral (discount-rate) configs, current loan info and the
+// participating accounts.
+func (c *Client) VIPLending() any {
+	c.vipLendingOnce.Do(func() {
+		if vipLendingFactory == nil {
+			c.logger.Warn(`kucoin.Client.VIPLending: viplending factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/viplending"`)
+			return
+		}
+		c.vipLendingVal = vipLendingFactory(c)
+	})
+	return c.vipLendingVal
 }
 
 // Compile-time assertion: *Error implements the error interface.

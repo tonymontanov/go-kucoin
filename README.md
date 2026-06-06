@@ -6,7 +6,7 @@ built for HFT / market-making workloads.
 - **Module:** `github.com/tonymontanov/go-kucoin/v2`
 - **Go:** 1.24+
 - **API target:** KuCoin **Classic** API (not the new UTA / unified-account family)
-- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5 Phase A — Margin** (HF cross/isolated, `v2.2.0`) and **Phase B — Account & Funding** (`v2.3.0`) implemented & offline-tested on the `v2.5` branch (live-validation pending).
+- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5** profiles implemented & offline-tested on the `v2.5` branch (live-validation pending): **Phase A — Margin** (HF cross/isolated, `v2.2.0`), **Phase B — Account & Funding** (`v2.3.0`), **Phase C — Earn + VIP Lending** (`v2.4.0`).
 
 The design mirrors the sibling in-house SDKs (`go-okx` / `go-bybit` / `go-bitget`):
 a neutral transport core plus thin, section-specific profiles.
@@ -126,6 +126,25 @@ _Deferred fast-follows: stop/OCO margin orders, the margin lending market ("Cred
 - Public v3 currency directory (all + one): chains, precisions, withdraw/deposit minimums
 
 _Deferred fast-follows: sub-account management, legacy V1/V2 deposit-address & transfer endpoints, HF/futures ledgers._
+
+---
+
+## Features (Earn + VIP Lending v2.5 — Phase C)
+
+> Two additive profiles on the spot host (`api.kucoin.com`), kept separate to
+> match KuCoin's service taxonomy. All endpoints are private (signed).
+
+**Earn (`earn/`)**
+- Product catalogues: savings, promotion, staking, KCS-staking, ETH-staking
+- Subscribe (`Purchase`) / redeem (`Redeem` + `RedeemPreview` with early-redemption penalty)
+- Current holdings (`GetHoldings`, paged)
+
+**VIP Lending / OTC loan (`viplending/`, read-only)**
+- Collateral / discount-rate configs (gradient tiers per currency)
+- Consolidated loan info: orders, LTV thresholds, collateral legs
+- Participating OTC-lending accounts
+
+_Deferred: Structured Earn (dual investment) — KuCoin reports those endpoints as not generally available._
 
 ---
 
@@ -256,13 +275,21 @@ kucoin.Client (root)              shared transport + signing + config
   │    ├─ Account()               cross/isolated accounts (balances + liabilities)
   │    ├─ RiskLimit()             cross/isolated risk limit + borrow config
   │    └─ Stream()                private margin order WS (book/ticker via spot)
-  └─ account.Client (profile)     layer 2: api.kucoin.com, treasury (v2.5)
-       ├─ Account()               summary, api-key, wallets, ledgers
-       ├─ Deposit()               v3 addresses + history
-       ├─ Withdrawal()            quotas, v3 withdraw, cancel, history
-       ├─ Transfer()              transferable + v3 flex transfer
-       ├─ Fee()                   base + actual trade fees
-       └─ Currency()              v3 currency directory (chains/precisions)
+  ├─ account.Client (profile)     layer 2: api.kucoin.com, treasury (v2.5)
+  │    ├─ Account()               summary, api-key, wallets, ledgers
+  │    ├─ Deposit()               v3 addresses + history
+  │    ├─ Withdrawal()            quotas, v3 withdraw, cancel, history
+  │    ├─ Transfer()              transferable + v3 flex transfer
+  │    ├─ Fee()                   base + actual trade fees
+  │    └─ Currency()              v3 currency directory (chains/precisions)
+  ├─ earn.Client (profile)        layer 2: api.kucoin.com, Earn (v2.5)
+  │    ├─ Get*Products()          savings/promotion/staking/kcs/eth
+  │    ├─ Purchase()/Redeem()     subscribe / redeem (+ preview)
+  │    └─ GetHoldings()           current Earn positions
+  └─ viplending.Client (profile)  layer 2: api.kucoin.com, OTC loan (v2.5)
+       ├─ GetCollateralConfigs()  gradient discount rates
+       ├─ GetLoanInfo()           orders + LTV + collateral
+       └─ GetAccounts()           participating accounts
 ```
 
 - A single neutral core (`internal/*`) handles HTTP transport, the KuCoin
@@ -316,7 +343,7 @@ common branches.
 - 🔄 **v2.5 — remaining sections** (additive `v2.5` branch):
   - **Phase A — Margin** (HF cross/isolated): implemented & offline-tested → `v2.2.0`.
   - **Phase B — Account & Funding:** implemented & offline-tested; live-validation pending → `v2.3.0`.
-  - **Phase C — Earn:** planned (`v2.4.0`).
+  - **Phase C — Earn + VIP Lending:** implemented & offline-tested; live-validation pending → `v2.4.0`.
 
 ---
 

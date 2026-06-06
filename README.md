@@ -6,7 +6,7 @@ built for HFT / market-making workloads.
 - **Module:** `github.com/tonymontanov/go-kucoin/v2`
 - **Go:** 1.24+
 - **API target:** KuCoin **Classic** API (not the new UTA / unified-account family)
-- **Status:** **v1.0 — Futures (USD-M perpetuals)** complete and live-validated. Spot is on the roadmap (v2.0).
+- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`).
 
 The design mirrors the sibling in-house SDKs (`go-okx` / `go-bybit` / `go-bitget`):
 a neutral transport core plus thin, section-specific profiles.
@@ -43,21 +43,47 @@ a neutral transport core plus thin, section-specific profiles.
 
 ---
 
+## Features (Spot v2.0)
+
+Hosted on `api.kucoin.com` (separate REST host from Futures; the profile builds
+its own signed transport sharing the root signer + observers).
+
+**Market data (REST)**
+- Server time, symbols (`baseIncrement` / `priceIncrement` / min sizes), level-1 ticker, 24h stats
+- Order book: public `level2_100` snapshot **and** full-depth signed `level2` (for market-making)
+- Klines (spot column order `[t,o,close,h,l,…]`), recent trades
+
+**Trading (REST)**
+- Place limit / market orders (market by `size` in base **or** `funds` in quote)
+- Batch place (`orders/multi`, one symbol, ≤5 per call), cancel by id / clientOid / all
+- GTT / GTC / IOC / FOK time-in-force, post-only, self-trade-prevention (STP)
+- Order & fill queries
+
+**Account (REST)**
+- Accounts list + balance adapter (trade account)
+
+**WebSocket**
+- Public: managed level-2 order book (full-depth or `level2_100` seed +
+  multi-change-per-frame sequence reconcile + auto re-seed on gap), ticker, match (trades), candles
+- Private: order lifecycle (`tradeOrders`), wallet/balance
+
+---
+
 ## Install
 
 ```bash
-go get github.com/tonymontanov/go-kucoin/v2@v2.0.0
+go get github.com/tonymontanov/go-kucoin/v2@v2.1.0
 ```
 
 ```go
 import (
     kucoin "github.com/tonymontanov/go-kucoin/v2"
-    "github.com/tonymontanov/go-kucoin/v2/futures"
+    "github.com/tonymontanov/go-kucoin/v2/futures" // or .../spot
 )
 ```
 
-> The `futures` package registers its profile factory in `init()`, so importing it
-> (even anonymously) is what makes `client.Futures()` non-nil.
+> Each profile package (`futures`, `spot`) registers its factory in `init()`, so
+> importing it (even anonymously) is what makes `client.Futures()` / `client.Spot()` non-nil.
 
 ---
 
@@ -153,10 +179,15 @@ Runnable demos live in [`examples/public`](examples/public) and [`examples/priva
 
 ```
 kucoin.Client (root)              shared transport + signing + config
-  └─ futures.Client (profile)     layer 2: section-specific REST/WS
-       ├─ MarketData()            contracts, klines, orderbook, mark/funding
-       ├─ Trading()               place/cancel/batch, queries, fills
-       ├─ Account()               balance, positions, leverage
+  ├─ futures.Client (profile)     layer 2: api-futures.kucoin.com
+  │    ├─ MarketData()            contracts, klines, orderbook, mark/funding
+  │    ├─ Trading()               place/cancel/batch, queries, fills
+  │    ├─ Account()               balance, positions, leverage
+  │    └─ Stream()                public + private WebSocket
+  └─ spot.Client (profile)        layer 2: api.kucoin.com (own signed REST)
+       ├─ MarketData()            symbols, klines, orderbook (incl. full depth)
+       ├─ Trading()               place/cancel/batch (size or funds), queries, fills
+       ├─ Account()               accounts + balance
        └─ Stream()                public + private WebSocket
 ```
 
@@ -207,7 +238,7 @@ common branches.
 ## Status & roadmap
 
 - ✅ **v1.0 — Futures (USD-M perpetuals):** complete, live-validated, published as `v2.0.0`.
-- 📋 **v2.0 — Spot:** planned.
+- ✅ **v2.0 — Spot:** complete, live-validated, published as `v2.1.0`.
 - 📋 **v2.5 — remaining sections.**
 
 ---

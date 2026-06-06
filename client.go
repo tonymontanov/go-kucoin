@@ -65,6 +65,24 @@ func NewClient(cfg Config) (*Client, error) {
 
 	var signer *auth.Signer = auth.NewSigner(cfg.APIKey, cfg.SecretKey, cfg.Passphrase, cfg.KeyVersion)
 
+	var restClient *rest.Client = rest.NewClient(cfg.REST.BaseURL, signer, buildRestConfig(cfg), cfg.UserAgent, cfg.Logger)
+
+	return &Client{
+		cfg:    cfg,
+		signer: signer,
+		rest:   restClient,
+		logger: cfg.Logger,
+	}, nil
+}
+
+// buildRestConfig copies the public RestConfig + observer hooks into the
+// internal transport config. The typed RateLimitEvent observer is forwarded
+// through a thin adapter because the public RateLimitEvent struct lives in
+// the root package and CANNOT be passed directly into internal/rest (import
+// cycle): the transport invokes the callback with flat arguments and we
+// assemble the event here. Shared by NewClient and NewSectionRESTClient so
+// section profiles on a different host inherit the same observer wiring.
+func buildRestConfig(cfg Config) rest.Config {
 	var restCfg rest.Config = rest.Config{
 		RequestTimeout:      cfg.REST.RequestTimeout,
 		MaxIdleConns:        cfg.REST.MaxIdleConns,
@@ -72,10 +90,6 @@ func NewClient(cfg Config) (*Client, error) {
 		IdleConnTimeout:     cfg.REST.IdleConnTimeout,
 		RateLimitObserver:   cfg.RateLimitObserver,
 	}
-	// Forward the typed event observer through a thin adapter. The public
-	// RateLimitEvent struct lives in the root package and CANNOT be passed
-	// directly into internal/rest (import cycle). The transport invokes the
-	// callback with flat arguments and we assemble RateLimitEvent here.
 	if cfg.RateLimitEventObserver != nil {
 		var userObserver = cfg.RateLimitEventObserver
 		restCfg.RateLimitEventObserver = func(endpoint, method string, headers map[string]string, meta rest.RequestMeta) {
@@ -89,15 +103,19 @@ func NewClient(cfg Config) (*Client, error) {
 			})
 		}
 	}
+	return restCfg
+}
 
-	var restClient *rest.Client = rest.NewClient(cfg.REST.BaseURL, signer, restCfg, cfg.UserAgent, cfg.Logger)
-
-	return &Client{
-		cfg:    cfg,
-		signer: signer,
-		rest:   restClient,
-		logger: cfg.Logger,
-	}, nil
+// NewSectionRESTClient builds a REST client bound to baseURL, reusing this
+// client's signer, transport tuning and rate-limit observers. Section
+// profiles that talk to a DIFFERENT host than the default REST client (e.g.
+// Spot on api.kucoin.com while the root defaults to the futures host) call
+// this so they share credentials and observability without a second signer.
+//
+// The returned client is owned by the caller; Close it (or rely on process
+// exit) — the root Client.Close only releases the default transport.
+func (c *Client) NewSectionRESTClient(baseURL string) *rest.Client {
+	return rest.NewClient(baseURL, c.signer, buildRestConfig(c.cfg), c.cfg.UserAgent, c.logger)
 }
 
 // Config returns a copy of the resolved Config (after defaults applied).

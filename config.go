@@ -53,6 +53,18 @@ var (
 	// DefaultFuturesSandboxRestBaseURL — sandbox Futures REST endpoint,
 	// selected automatically when Config.Demo is true.
 	DefaultFuturesSandboxRestBaseURL string = "https://api-sandbox-futures.kucoin.com"
+
+	// DefaultSpotRestBaseURL — production Spot REST endpoint (v2.0). KuCoin
+	// serves Spot on a DIFFERENT host than Futures; the spot profile builds
+	// its own REST client against this host (see spot.NewClient). The root
+	// transport stays section-agnostic and defaults to the futures host.
+	DefaultSpotRestBaseURL string = "https://api.kucoin.com"
+
+	// DefaultSpotSandboxRestBaseURL — historical Spot sandbox host. KuCoin
+	// has deprecated the public spot sandbox; kept for completeness and
+	// selected when Config.Demo is true, but most accounts must test Spot
+	// against production with small sizes.
+	DefaultSpotSandboxRestBaseURL string = "https://openapi-sandbox.kucoin.com"
 )
 
 // Bullet-token REST paths. The WS layer POSTs to one of these to obtain a

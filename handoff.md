@@ -56,7 +56,9 @@ go-kucoin/
 ├── types/                 # layer-1 protocol-common types
 ├── futures/               # layer-2 Futures profile (v1.0)
 │   └── types/             # futures-specific + layer-1 aliases
-├── examples/              # runnable demos (public / private)
+├── spot/                  # layer-2 Spot profile (v2.0)
+│   └── types/             # spot-specific + layer-1 aliases
+├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
 ```
@@ -108,6 +110,22 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > private WS paths exercised in production. Committed and pushed to `main`,
 > tagged **`v2.0.0`** (module path `.../v2`). README added. Next iteration:
 > v2.0 Spot.
+
+> **Milestone — v2.0 Spot COMPLETE & LIVE-VALIDATED.** The `spot/` profile
+> mirrors `futures/` on api.kucoin.com: MarketData (symbols / level1 ticker /
+> 24h stats / level2_100 + full-depth signed level2 / klines / trades / time),
+> Trading (place limit+market by size OR funds, batch place same-symbol,
+> cancel by id/clientOid/all, order queries, fills), Account (accounts +
+> Balance adapter) and Stream (public level2/ticker/match/candles + private
+> tradeOrders/balance). Live-validated end-to-end on `PARTIUSDT` driving the
+> `market-making-desk-core` desk (Frontrun Chase / CQB Scale strategies):
+> orders place / modify / cancel, real-time balance-driven inventory, non-zero
+> best bid/ask from start. Live-hardening fixes shipped (full-depth signed
+> level2 seed; tolerant `orders/multi` decode that handles the nested
+> `{"data":[...]}` envelope — fixes the "uncontrolled re-place" flood; flexible
+> int64 for the QUOTED `time` on the `/account/balance` private push — fixes
+> the dropped inventory WS). Build / vet / race green; offline contract + unit
+> tests added. Published as **`v2.1.0`**.
 
 ### ✅ Done
 
@@ -187,10 +205,67 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     place) — removes the per-order lag / "overshoot to opposite side".
   - Post-only (`GTX`) propagated on batch modify (was dropped → taker fills).
 
+- `spot/` — **layer-2 Spot profile (v2.0 COMPLETE & live-validated)**:
+  - `client.go` — profile client + sub-client factories + `init()` factory
+    registration. Builds its OWN REST client on the spot host via
+    `kucoin.Client.NewSectionRESTClient` (root REST defaults to the futures
+    host); `resolveSpotBaseURL` maps futures-host/empty → spot host and
+    honours any explicit non-futures URL (mock / override). Optional default
+    trade type (TRADE/MARGIN_TRADE).
+  - `helpers.go` — REST GET/POST/DELETE wrappers, clientOid gen, spot kline
+    granularity map ("1min"/"1hour"/…), ns→ms.
+  - `market.go` — MarketData: server time, symbols (all/one), level1 ticker,
+    24h stats, level2_100 snapshot (public) + **GetOrderBookFull** (signed
+    `/api/v3/market/orderbook/level2`, full depth for market-making), klines
+    (sec window, [t,o,CLOSE,h,l,…] column order), recent trades.
+  - `trading.go` — Trading: place (limit/market by size OR funds), batch
+    place (one symbol, `orders/multi` {symbol,orderList}), cancel
+    (id / clientOid via `/order/client-order/` / all), order & fill queries.
+  - `account.go` — Account: accounts list + Balance adapter (trade account).
+  - `stream.go` + `stream-wire.go` — public WS: managed level2 (REST seed —
+    FULL depth when keyed, else level2_100 — + multi-change-per-frame,
+    per-entry sequences sorted then applied through the shared engine +
+    re-seed on gap), ticker, match (trades), candles.
+  - `stream-private.go` — private WS: tradeOrders, balance.
+  - `spot/types/*` — SymbolInfo, MarketTicker/MarketStats, OrderInfo,
+    CreateOrderRequest, Fill, BatchOrderResult, AccountInfo + layer-1 alias
+    re-exports + spot enums (GTT/FOK, STP, TradeType, AccountType).
+  - Tests: `trading_test.go` (body builder: limit vs market size/funds +
+    `decodeBatchRows` nested/bare/empty), `market_test.go` (spot candle column
+    order, level2 change sort, granularity), `contract_rest_test.go` (mock REST
+    end-to-end incl. full-depth signed level2), `contract_ws_test.go` (mock WS
+    bullet + multi-change-per-frame reconcile), `stream_private_test.go`
+    (`flexInt64` quoted/bare time). Race-clean.
+  - Config: `DefaultSpotRestBaseURL` (+ sandbox) added; root
+    `NewSectionRESTClient` shares the signer + rate-limit observers.
+  - Live-hardening fixes (from desk validation on `PARTIUSDT`):
+    - **Full-depth signed level2** seed (`GetOrderBookFull` via
+      `/api/v3/market/orderbook/level2`) — `level2_100` is too shallow for MM;
+      WS book manager prefers it when keyed.
+    - **Tolerant `orders/multi` decode** (`decodeBatchRows`): KuCoin nests the
+      batch rows under `{"data":[...]}`; the old bare-array decode failed on a
+      200 OK, so the strategy retried and FLOODED the book — now accepts both
+      nested and bare shapes.
+    - **`flexInt64`** for the `/account/balance` private push `time` (delivered
+      as a QUOTED string) — the int64 field silently dropped EVERY balance
+      frame, which looked like "inventory WS not working" (only the 60s REST
+      poll moved the position).
+
+- **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
+  live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
+  branch. Spot specifics: size in base currency (not contracts); position =
+  total base-asset balance from the account WS (+ initial REST), `EntryPrice`
+  0; batch chunked to 5 orders/call same-symbol; leverage / margin-mode /
+  mark-index are no-ops with a warning. Plus a spot rate-limiter strategy
+  (`spot`/`public` pools, `gw-ratelimit-*` driven), credential env-fallback for
+  `kucoin_spot[_demo]`, an initial REST ticker seed (non-zero best bid/ask at
+  start), and a generic `context.Canceled` classifier in high-level execution
+  (restart/shutdown cancels no longer logged as "API error").
+
 ### 🔧 In progress
 
-- **v2.0 — Spot profile** (next iteration): `spot/` package against
-  `api.kucoin.com`, registered via `RegisterSpotFactory`.
+- **v2.5 — remaining sections** (next): cover the rest of the exchange surface
+  on top of the stable Futures + Spot core.
 
 ### ✅ Reconciled against live API (v1.0)
 Wire field names below were taken from KuCoin docs + official SDKs and have

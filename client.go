@@ -70,6 +70,12 @@ type Client struct {
 
 	convertOnce sync.Once
 	convertVal  any
+
+	affiliateOnce sync.Once
+	affiliateVal  any
+
+	copyTradingOnce sync.Once
+	copyTradingVal  any
 }
 
 // NewClient validates cfg, fills defaults, and returns a configured root
@@ -374,6 +380,60 @@ func (c *Client) Convert() any {
 		c.convertVal = convertFactory(c)
 	})
 	return c.convertVal
+}
+
+// affiliateFactory is set by affiliate.init() via RegisterAffiliateFactory.
+var affiliateFactory func(c *Client) any
+
+// RegisterAffiliateFactory wires the affiliate.Client builder. Idempotent.
+// Available from v2.5 (affiliate commission / rebate queries).
+func RegisterAffiliateFactory(f func(c *Client) any) {
+	if affiliateFactory == nil {
+		affiliateFactory = f
+	}
+}
+
+// Affiliate returns the *affiliate.Client (typed as any). nil when the affiliate
+// package has not been imported. Available from v2.5. The profile lives on the
+// spot host (api.kucoin.com) and exposes the read-only affiliate reports:
+// my-commission and the (deprecated) inviter rebate statistics.
+func (c *Client) Affiliate() any {
+	c.affiliateOnce.Do(func() {
+		if affiliateFactory == nil {
+			c.logger.Warn(`kucoin.Client.Affiliate: affiliate factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/affiliate"`)
+			return
+		}
+		c.affiliateVal = affiliateFactory(c)
+	})
+	return c.affiliateVal
+}
+
+// copyTradingFactory is set by copytrading.init() via RegisterCopyTradingFactory.
+var copyTradingFactory func(c *Client) any
+
+// RegisterCopyTradingFactory wires the copytrading.Client builder. Idempotent.
+// Available from v2.5 (futures copy-trading / lead-trader endpoints).
+func RegisterCopyTradingFactory(f func(c *Client) any) {
+	if copyTradingFactory == nil {
+		copyTradingFactory = f
+	}
+}
+
+// CopyTrading returns the *copytrading.Client (typed as any). nil when the
+// copytrading package has not been imported. Available from v2.5. The profile
+// lives on the FUTURES host (api-futures.kucoin.com, shared with the futures
+// profile) and exposes the lead-trader futures copy-trading endpoints: order
+// placement (+TP/SL), cancellation, max open size and isolated-margin /
+// risk-limit management. Requires a lead-trader (copy-trading) account.
+func (c *Client) CopyTrading() any {
+	c.copyTradingOnce.Do(func() {
+		if copyTradingFactory == nil {
+			c.logger.Warn(`kucoin.Client.CopyTrading: copytrading factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/copytrading"`)
+			return
+		}
+		c.copyTradingVal = copyTradingFactory(c)
+	})
+	return c.copyTradingVal
 }
 
 // Compile-time assertion: *Error implements the error interface.

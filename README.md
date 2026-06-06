@@ -6,7 +6,7 @@ built for HFT / market-making workloads.
 - **Module:** `github.com/tonymontanov/go-kucoin/v2`
 - **Go:** 1.24+
 - **API target:** KuCoin **Classic** API (not the new UTA / unified-account family)
-- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5** profiles implemented & offline-tested on the `v2.5` branch (live-validation pending): **Phase A — Margin** (HF cross/isolated, `v2.2.0`), **Phase B — Account & Funding** (`v2.3.0`), **Phase C — Earn + VIP Lending** (`v2.4.0`), **Phase D — Sub-Account management** (`v2.5.0`), **Phase E — Convert** (`v2.6.0`).
+- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5** profiles implemented & offline-tested on the `v2.5` branch (live-validation pending): **Phase A — Margin** (HF cross/isolated, `v2.2.0`), **Phase B — Account & Funding** (`v2.3.0`), **Phase C — Earn + VIP Lending** (`v2.4.0`), **Phase D — Sub-Account management** (`v2.5.0`), **Phase E — Convert** (`v2.6.0`), **Phase F — Affiliate + Copy-trading** (`v2.7.0`).
 
 The design mirrors the sibling in-house SDKs (`go-okx` / `go-bybit` / `go-bitget`):
 a neutral transport core plus thin, section-specific profiles.
@@ -176,6 +176,23 @@ _Excluded: the futures sub-account balance endpoint (futures host) and the depre
 
 ---
 
+## Features (Affiliate + Copy-Trading v2.5 — Phase F)
+
+> Two additive profiles. All endpoints are private (signed).
+
+**Affiliate (`affiliate/`, spot host, read-only)**
+- `GetCommission` — settled-commission records
+- `GetInviterRebate` — inviter rebate stats (deprecated "Get Account")
+
+**Copy-Trading (`copytrading/`, futures host)**
+- Orders: `PlaceOrder` / `PlaceOrderTest`, `PlaceTPSLOrder`, `CancelOrder`, `CancelOrderByClientOid`
+- Margin/sizing: `GetMaxOpenSize`, `GetMaxWithdrawMargin`, `AddIsolatedMargin`,
+  `RemoveIsolatedMargin`, `ModifyRiskLimitLevel`, `SetAutoDepositStatus`
+
+_Requires a lead-trader (copy-trading) account; ISOLATED margin only, max 20x._
+
+---
+
 ## Install
 
 ```bash
@@ -322,10 +339,15 @@ kucoin.Client (root)              shared transport + signing + config
   │    ├─ Create()/Enable*()      create + margin/futures permission
   │    ├─ GetSummaries()/GetBalance(s)()  summaries + spot balances
   │    └─ *APIKey()               spot sub-account API-key CRUD
-  └─ convert.Client (profile)     layer 2: api.kucoin.com, fee-free swap (v2.5)
-       ├─ GetSymbol()/GetCurrencies()  public directories
-       ├─ GetQuote()/PlaceMarketOrder()  market convert
-       └─ *LimitOrder()/*LimitQuote()    limit-order lifecycle
+  ├─ convert.Client (profile)     layer 2: api.kucoin.com, fee-free swap (v2.5)
+  │    ├─ GetSymbol()/GetCurrencies()  public directories
+  │    ├─ GetQuote()/PlaceMarketOrder()  market convert
+  │    └─ *LimitOrder()/*LimitQuote()    limit-order lifecycle
+  ├─ affiliate.Client (profile)   layer 2: api.kucoin.com, rebates (v2.5)
+  │    └─ GetCommission()/GetInviterRebate()
+  └─ copytrading.Client (profile) layer 2: api-futures.kucoin.com, lead trader (v2.5)
+       ├─ PlaceOrder()/PlaceTPSLOrder()/Cancel*()  copy-trade orders
+       └─ *IsolatedMargin()/GetMaxOpenSize()        margin + sizing
 ```
 
 - A single neutral core (`internal/*`) handles HTTP transport, the KuCoin
@@ -382,7 +404,8 @@ common branches.
   - **Phase C — Earn + VIP Lending:** implemented & offline-tested; live-validation pending → `v2.4.0`.
   - **Phase D — Sub-Account management:** implemented & offline-tested; live-validation pending → `v2.5.0`.
   - **Phase E — Convert:** implemented & offline-tested; live-validation pending → `v2.6.0`.
-  - **Phase F — Affiliate + Copy-trading · Phase G — Broker (partner-only):** planned (`v2.7.0`–`v2.8.0`).
+  - **Phase F — Affiliate + Copy-trading:** implemented & offline-tested; live-validation pending → `v2.7.0`.
+  - **Phase G — Broker (partner-only):** planned (`v2.8.0`).
   - **Phase H — UTA / API v3.0** (`/api/ua/v1/*`, unified account): separate large track, planned `v3.0.0` line.
 
 ---

@@ -70,6 +70,10 @@ go-kucoin/
 │   └── types/             # sub-account + sub-API-key types
 ├── convert/               # layer-2 Convert profile (v2.5 Phase E)
 │   └── types/             # convert symbol/currency/quote/order types
+├── affiliate/             # layer-2 Affiliate profile (v2.5 Phase F, spot host)
+│   └── types/             # commission + rebate types
+├── copytrading/           # layer-2 futures Copy-Trading profile (v2.5 Phase F)
+│   └── types/             # copy-trade order/position/margin types
 ├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
@@ -244,8 +248,29 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > (`cancelTime`/`filledTime`) and `cancelType` decode to 0. Small cohesive
 > surface → flat client (no sub-clients); GetSymbol/GetCurrencies are public
 > (unsigned), the rest signed. Shapes verified against KuCoin docs. Build / vet /
-> race green; offline contract tests added. NOT yet live-validated. To be tagged
+> race green; offline contract tests added. NOT yet live-validated. Published as
 > **`v2.6.0`**.
+
+> **Milestone — v2.5 Phase F (Affiliate + Copy-Trading) IMPLEMENTED (SDK-only,
+> offline-tested).** Two new ADDITIVE profiles on `v2.5` — zero changes to
+> existing profiles or shared `internal/*`.
+> `affiliate/` (SPOT host): read-only reports — GetCommission (`GET
+> /api/v2/affiliate/queryMyCommission`) and GetInviterRebate (`GET
+> /api/v2/affiliate/inviter/statistics`, the DEPRECATED "Get Account" rebate
+> endpoint, kept for completeness). KuCoin's newer affiliate reports (Get
+> Transaction / Get Invited / Get Trade History) are deferred fast-follows.
+> `copytrading/` (FUTURES host, via the parent's futures-bound REST — same as the
+> futures profile): lead-trader futures copy-trading under
+> `/api/v1/copy-trade/futures/*` — PlaceOrder / PlaceOrderTest, PlaceTPSLOrder
+> (st-orders), CancelOrder (by orderId → cancelledOrderIds), CancelOrderByClientOid
+> (clientOid+symbol), GetMaxOpenSize, GetMaxWithdrawMargin (bare string),
+> AddIsolatedMargin (deposit-margin → full Position), RemoveIsolatedMargin
+> (withdraw-margin → string), ModifyRiskLimitLevel (→ bool), SetAutoDepositStatus
+> (→ bool). Requires the LeadtradeFutures permission (copy-trading account), so
+> offline-tested only. Copy-trading supports ISOLATED margin only (CROSS →
+> 180204), max 20x, hedge-mode PositionSide (LONG/SHORT/BOTH). Shapes verified
+> against KuCoin docs + the official-pattern KuCoin SDK. Build / vet / race green;
+> offline contract tests added. NOT yet live-validated. To be tagged **`v2.7.0`**.
 
 ### ✅ Done
 
@@ -492,6 +517,28 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     validation). Race-clean.
   - Root wiring (additive): `RegisterConvertFactory` + `Client.Convert()`.
 
+- `affiliate/` — **layer-2 Affiliate profile (v2.5 Phase F, spot host)**:
+  - `doc.go`, `client.go` (spot-bound REST + signed-GET helper + `init()`),
+    `affiliate.go` — GetCommission, GetInviterRebate (deprecated) + wires.
+  - `affiliate/types/*` — CommissionQuery/Commission, Rebate.
+  - Tests: `contract_rest_test.go` (mock REST; auth-required). Race-clean.
+  - Root wiring (additive): `RegisterAffiliateFactory` + `Client.Affiliate()`.
+
+- `copytrading/` — **layer-2 futures Copy-Trading profile (v2.5 Phase F,
+  futures host)**:
+  - `doc.go` — overview (futures host, LeadtradeFutures permission, ISOLATED-only).
+  - `client.go` — profile client using the parent's futures-bound REST
+    (`parent.REST()`) + signed GET/POST/DELETE core + `init()` factory.
+  - `copytrading.go` — PlaceOrder/PlaceOrderTest/PlaceTPSLOrder, CancelOrder,
+    CancelOrderByClientOid, GetMaxOpenSize, GetMaxWithdrawMargin,
+    AddIsolatedMargin, RemoveIsolatedMargin, ModifyRiskLimitLevel,
+    SetAutoDepositStatus + Position wire.
+  - `copytrading/types/*` — OrderRequest, TPSLOrderRequest, OrderResult,
+    CancelResult, MaxOpenSize, AddMarginRequest, Position.
+  - Tests: `contract_rest_test.go` (mock futures REST end-to-end; string/bool
+    data shapes; position payload; auth-required + validation). Race-clean.
+  - Root wiring (additive): `RegisterCopyTradingFactory` + `Client.CopyTrading()`.
+
 - **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
   live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
   branch. Spot specifics: size in base currency (not contracts); position =
@@ -525,8 +572,10 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
   - **Phase E — Convert** (`convert/`): ✅ implemented & offline-tested; to be
     tagged `v2.6.0`. Public symbol/currency directories + market & limit convert
     order lifecycle.
-  - **Phase F — Affiliate + Copy-trading** (`affiliate/`, `copytrading/`):
-    planned (`v2.7.0`).
+  - **Phase F — Affiliate + Copy-trading** (`affiliate/`, `copytrading/`): ✅
+    implemented & offline-tested; to be tagged `v2.7.0`. Affiliate commission +
+    rebate (spot host); futures copy-trade order/margin lifecycle (futures host,
+    lead-trader account required).
   - **Phase G — Broker (nd + api, partner-only)** (`broker/`): planned
     (`v2.8.0`).
   - **Phase H — UTA / API v3.0** (`uta/`): separate large track (`/api/ua/v1/*`,

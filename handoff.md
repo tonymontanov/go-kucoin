@@ -51,12 +51,13 @@ go-kucoin/
 │   ├── kclog/             # logging facade (Noop default)
 │   ├── kcmet/             # metrics facade (Noop default)
 │   ├── rest/              # low-level REST client (envelope, headers, meta)
-│   ├── ws/                # [PLANNED] bullet-token connect/reconnect/ping
-│   └── kccommon/          # [PLANNED] shared helpers + seq orderbook engine
-├── types/                 # [PLANNED] layer-1 protocol-common types
-├── futures/               # [PLANNED] layer-2 Futures profile
-│   └── types/             # [PLANNED] futures-specific + layer-1 aliases
-├── examples/              # [PLANNED] runnable demos
+│   ├── ws/                # bullet-token connect/reconnect/ping
+│   └── kccommon/          # shared helpers + seq orderbook engine
+├── types/                 # layer-1 protocol-common types
+├── futures/               # layer-2 Futures profile (v1.0)
+│   └── types/             # futures-specific + layer-1 aliases
+├── examples/              # runnable demos (public / private)
+├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
 ```
 
@@ -99,6 +100,14 @@ futures.Client (profile)            <- layer 2 (section specifics)
 
 Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 **v2.5** = remaining sections.
+
+> **Milestone — v1.0 Futures MVP COMPLETE & PUBLISHED.** The SDK was
+> live-validated end-to-end against KuCoin (public + private + trade + WS) on
+> `PARTIUSDTM` driving the `market-making-desk-core` desk (Frontrun Chase /
+> CQB Scale strategies). All transport, REST, account, trading and public +
+> private WS paths exercised in production. Committed and pushed to `main`,
+> tagged **`v2.0.0`** (module path `.../v2`). README added. Next iteration:
+> v2.0 Spot.
 
 ### ✅ Done
 
@@ -164,23 +173,37 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     (REST seed + sequence apply).
 - `go build ./...`, `go vet ./...`, `go test ./... -race` green.
 
+- **Repo B (market-making-desk-core) — `kucoin/futures` connector (DONE,
+  live-validated):** `kucoin-connector` branch off `qa`. Wraps this SDK with
+  minimal, localised changes to the stable core. Live-hardened fixes shipped:
+  - KuCoin Futures rate-limiter strategy driven by `gw-ratelimit-*` headers
+    (fixes the 429000 user-level ban seen on first live run).
+  - Margin-mode resolution + cache (fixes order reject `330005`).
+  - Price alignment to instrument `tickSize` (fixes `100001`).
+  - Real-time inventory: WS `position.change` used as trigger +
+    account-wide order-stream fill detection → debounced REST refresh
+    (KuCoin position WS frames are sparse and often omit `currentQty`).
+  - Parallel batch modify (cancel-legs in parallel + single `orders/multi`
+    place) — removes the per-order lag / "overshoot to opposite side".
+  - Post-only (`GTX`) propagated on batch modify (was dropped → taker fills).
+
 ### 🔧 In progress
 
-- (next) **Repo B (market-making-desk-core):** `kucoin-connector` branch
-  off `qa`; `kucoin/futures` connector.
+- **v2.0 — Spot profile** (next iteration): `spot/` package against
+  `api.kucoin.com`, registered via `RegisterSpotFactory`.
 
-### 📋 Planned
-- **Repo B (market-making-desk-core):** `kucoin-connector` branch off
-  `qa`; `kucoin/futures` connector wired with minimal, localised changes
-  to the stable core.
-
-### ⚠️ Verify against live API before production
-The wire field names below were taken from KuCoin docs + official SDKs but
-should be reconciled with a live/sandbox response before go-live:
+### ✅ Reconciled against live API (v1.0)
+Wire field names below were taken from KuCoin docs + official SDKs and have
+been reconciled against live/sandbox responses during the v1.0 validation:
   - private WS payloads (`tradeOrders` / `position` / `wallet`) field names;
   - `privateChannel` flag necessity per private topic;
-  - level2 REST snapshot `ts` unit (treated as ms);
+  - level2 REST snapshot `ts` unit (ms);
   - contract `maxLeverage` presence on `/contracts/active`.
+
+  Live nuance captured: the `/contract/position` WS topic emits sparse,
+  mark-price-driven `position.change` frames that OMIT `currentQty`. The SDK
+  surfaces this via `PositionInfo.CurrentQtyKnown` so consumers don't read a
+  mark tick as a flat position (see `futures/types/position-info.go`).
 
 ---
 

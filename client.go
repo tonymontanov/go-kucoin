@@ -67,6 +67,9 @@ type Client struct {
 
 	subAccountOnce sync.Once
 	subAccountVal  any
+
+	convertOnce sync.Once
+	convertVal  any
 }
 
 // NewClient validates cfg, fills defaults, and returns a configured root
@@ -344,6 +347,33 @@ func (c *Client) SubAccount() any {
 		c.subAccountVal = subAccountFactory(c)
 	})
 	return c.subAccountVal
+}
+
+// convertFactory is set by convert.init() via RegisterConvertFactory.
+var convertFactory func(c *Client) any
+
+// RegisterConvertFactory wires the convert.Client builder. Idempotent.
+// Available from v2.5 (KuCoin Convert: fee-free currency swaps).
+func RegisterConvertFactory(f func(c *Client) any) {
+	if convertFactory == nil {
+		convertFactory = f
+	}
+}
+
+// Convert returns the *convert.Client (typed as any). nil when the convert
+// package has not been imported. Available from v2.5. The profile lives on the
+// spot host (api.kucoin.com) and covers KuCoin Convert: public symbol /
+// currency directories, market quotes + orders, and the limit-order lifecycle
+// (quote / place / detail / list / cancel).
+func (c *Client) Convert() any {
+	c.convertOnce.Do(func() {
+		if convertFactory == nil {
+			c.logger.Warn(`kucoin.Client.Convert: convert factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/convert"`)
+			return
+		}
+		c.convertVal = convertFactory(c)
+	})
+	return c.convertVal
 }
 
 // Compile-time assertion: *Error implements the error interface.

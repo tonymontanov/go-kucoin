@@ -68,6 +68,8 @@ go-kucoin/
 │   └── types/             # OTC-loan types
 ├── subaccount/            # layer-2 Sub-Account management profile (v2.5 Phase D)
 │   └── types/             # sub-account + sub-API-key types
+├── convert/               # layer-2 Convert profile (v2.5 Phase E)
+│   └── types/             # convert symbol/currency/quote/order types
 ├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
@@ -224,7 +226,26 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > the spot host. Small cohesive surface → flat client (no sub-clients). Shapes
 > verified against the official KuCoin Go SDK. Build / vet / race green; offline
 > contract tests added (incl. flexInt64 number-vs-string). NOT yet
-> live-validated. To be tagged **`v2.5.0`**.
+> live-validated. Published as **`v2.5.0`**.
+
+> **Milestone — v2.5 Phase E (Convert) IMPLEMENTED (SDK-only, offline-tested).**
+> One new ADDITIVE profile `convert/` on `v2.5`, on the SPOT host
+> (`api.kucoin.com`) — zero changes to existing profiles or shared `internal/*`.
+> KuCoin Convert is a fee-free currency swap (the quoted price embeds a spread).
+> Coverage: public directories — convertible pair limits (`GET
+> /api/v1/convert/symbol`) and currency list (`GET /api/v1/convert/currencies`);
+> market convert — quote (`GET /api/v1/convert/quote`), place (`POST
+> /api/v1/convert/order`), detail (`/order/detail`), history (`/order/history`,
+> paged); limit convert — protection-price quote (`/limit/quote`), place (`POST
+> /api/v1/convert/limit/order`), detail (`/limit/order/detail`), list
+> (`/limit/orders`, paged), cancel (`DELETE /api/v1/convert/limit/order/cancel`,
+> by clientOrderId). A flexStr normalises `orderId` (quoted string for limit
+> orders, bare number for market detail). Nullable limit-order timestamps
+> (`cancelTime`/`filledTime`) and `cancelType` decode to 0. Small cohesive
+> surface → flat client (no sub-clients); GetSymbol/GetCurrencies are public
+> (unsigned), the rest signed. Shapes verified against KuCoin docs. Build / vet /
+> race green; offline contract tests added. NOT yet live-validated. To be tagged
+> **`v2.6.0`**.
 
 ### ✅ Done
 
@@ -455,6 +476,22 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     validation). Race-clean.
   - Root wiring (additive): `RegisterSubAccountFactory` + `Client.SubAccount()`.
 
+- `convert/` — **layer-2 Convert profile (v2.5 Phase E)**:
+  - `doc.go` — overview (spot host, fee-free swap, public vs signed split).
+  - `client.go` — profile client (spot-bound REST) + `init()` factory.
+  - `helpers.go` — public + signed GET/POST/DELETE core, `flexStr` (string|number
+    orderId), validation/auth error constructors, query/format helpers.
+  - `convert.go` — GetSymbol, GetCurrencies (public); GetQuote, PlaceMarketOrder,
+    GetOrder, GetOrderHistory; GetLimitQuote, PlaceLimitOrder, GetLimitOrder,
+    GetLimitOrders, CancelLimitOrder + wire structs/converters.
+  - `convert/types/*` — Symbol, CurrencyLimit/Currencies, QuoteRequest/Quote,
+    LimitQuote, PlaceMarket/LimitRequest, PlaceResult, Order(+Page),
+    LimitOrder(+Page), HistoryQuery.
+  - Tests: `contract_rest_test.go` (mock REST end-to-end across public + signed;
+    flexStr number+string; nullable limit timestamps; auth-required +
+    validation). Race-clean.
+  - Root wiring (additive): `RegisterConvertFactory` + `Client.Convert()`.
+
 - **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
   live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
   branch. Spot specifics: size in base currency (not contracts); position =
@@ -485,7 +522,9 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     offline-tested; to be tagged `v2.5.0`. Create/permissions, summaries +
     spot balances (single/paged), spot API-key CRUD. Excluded: futures
     sub-account balance (futures host) + deprecated V1 list endpoints.
-  - **Phase E — Convert** (`convert/`): ⏳ next (`v2.6.0`).
+  - **Phase E — Convert** (`convert/`): ✅ implemented & offline-tested; to be
+    tagged `v2.6.0`. Public symbol/currency directories + market & limit convert
+    order lifecycle.
   - **Phase F — Affiliate + Copy-trading** (`affiliate/`, `copytrading/`):
     planned (`v2.7.0`).
   - **Phase G — Broker (nd + api, partner-only)** (`broker/`): planned

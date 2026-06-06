@@ -64,6 +64,9 @@ type Client struct {
 
 	vipLendingOnce sync.Once
 	vipLendingVal  any
+
+	subAccountOnce sync.Once
+	subAccountVal  any
 }
 
 // NewClient validates cfg, fills defaults, and returns a configured root
@@ -314,6 +317,33 @@ func (c *Client) VIPLending() any {
 		c.vipLendingVal = vipLendingFactory(c)
 	})
 	return c.vipLendingVal
+}
+
+// subAccountFactory is set by subaccount.init() via RegisterSubAccountFactory.
+var subAccountFactory func(c *Client) any
+
+// RegisterSubAccountFactory wires the subaccount.Client builder. Idempotent.
+// Available from v2.5 (master-account sub-account management).
+func RegisterSubAccountFactory(f func(c *Client) any) {
+	if subAccountFactory == nil {
+		subAccountFactory = f
+	}
+}
+
+// SubAccount returns the *subaccount.Client (typed as any). nil when the
+// subaccount package has not been imported. Available from v2.5. The profile
+// lives on the spot host (api.kucoin.com) and manages sub-accounts from the
+// master account: create + grant margin/futures permission, list summaries and
+// balances, and the spot sub-account API-key lifecycle.
+func (c *Client) SubAccount() any {
+	c.subAccountOnce.Do(func() {
+		if subAccountFactory == nil {
+			c.logger.Warn(`kucoin.Client.SubAccount: subaccount factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/subaccount"`)
+			return
+		}
+		c.subAccountVal = subAccountFactory(c)
+	})
+	return c.subAccountVal
 }
 
 // Compile-time assertion: *Error implements the error interface.

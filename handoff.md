@@ -66,6 +66,8 @@ go-kucoin/
 │   └── types/             # earn-specific types
 ├── viplending/            # layer-2 VIP Lending / OTC-loan profile (v2.5 Phase C)
 │   └── types/             # OTC-loan types
+├── subaccount/            # layer-2 Sub-Account management profile (v2.5 Phase D)
+│   └── types/             # sub-account + sub-API-key types
 ├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
@@ -202,7 +204,27 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > docs + the official Go SDK / spec. Build / vet / race green; offline contract
 > tests added. NOT yet live-validated; Structured Earn (dual investment) is
 > deferred (KuCoin reports those endpoints as not generally available, 400100).
-> To be tagged **`v2.4.0`**.
+> Published as **`v2.4.0`**.
+
+> **Milestone — v2.5 Phase D (Sub-Account management) IMPLEMENTED (SDK-only,
+> offline-tested).** One new ADDITIVE profile `subaccount/` on `v2.5`, on the
+> SPOT host (`api.kucoin.com`) — zero changes to existing profiles or shared
+> `internal/*`. MASTER-account-only operations: create a sub-account (`POST
+> /api/v2/sub/user/created`) + grant margin/futures permission (`POST
+> /api/v3/sub/user/{margin,futures}/enable`); list sub-account summaries (`GET
+> /api/v2/sub/user`, paged) and spot balances — single (`GET
+> /api/v1/sub-accounts/{id}`) + paged (`GET /api/v2/sub-accounts`); and the spot
+> sub-account API-key lifecycle: create / list / modify / delete
+> (`/api/v1/sub/api-key[/update]`). CreateAPIKey surfaces the API secret +
+> passphrase ONCE (documented). A flexInt64 tolerates `createdAt` arriving as a
+> bare number OR a quoted string (KuCoin is inconsistent across these
+> endpoints). The futures sub-account balance endpoint
+> (`/api/v1/account-overview-all`, FUTURES host) and the deprecated V1
+> summary/balance endpoints are intentionally excluded to keep the profile on
+> the spot host. Small cohesive surface → flat client (no sub-clients). Shapes
+> verified against the official KuCoin Go SDK. Build / vet / race green; offline
+> contract tests added (incl. flexInt64 number-vs-string). NOT yet
+> live-validated. To be tagged **`v2.5.0`**.
 
 ### ✅ Done
 
@@ -417,6 +439,22 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     Race-clean.
   - Root wiring (additive): `RegisterVIPLendingFactory` + `Client.VIPLending()`.
 
+- `subaccount/` — **layer-2 Sub-Account management profile (v2.5 Phase D)**:
+  - `doc.go` — overview (spot host, master-account-only, host/security notes).
+  - `client.go` — profile client (spot-bound REST) + `init()` factory.
+  - `helpers.go` — signed GET/POST/DELETE core, `flexInt64` (number|string
+    `createdAt`), validation/auth error constructors.
+  - `subaccount.go` — Create, EnableMargin, EnableFutures, GetSummaries (paged),
+    GetBalance, GetBalances (paged), CreateAPIKey, GetAPIKeys, UpdateAPIKey,
+    DeleteAPIKey + wire structs/converters.
+  - `subaccount/types/*` — CreateRequest/Result, SubUser(+Page),
+    SubBalance/SubAccountAssets(+Page), CreateAPIKeyRequest/CreatedAPIKey,
+    APIKey, UpdateAPIKeyRequest/UpdatedAPIKey, DeletedAPIKey.
+  - Tests: `contract_rest_test.go` (mock REST end-to-end across create/perms/
+    summaries/balances/API-key CRUD; flexInt64 number+string; auth-required +
+    validation). Race-clean.
+  - Root wiring (additive): `RegisterSubAccountFactory` + `Client.SubAccount()`.
+
 - **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
   live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
   branch. Spot specifics: size in base currency (not contracts); position =
@@ -441,9 +479,19 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     sub-account management, legacy V1/V2 deposit-address & transfer endpoints,
     HF/futures ledgers.
   - **Phase C — Earn + VIP Lending** (`earn/`, `viplending/`): ✅ implemented &
-    offline-tested; to be tagged `v2.4.0`. Earn products/purchase/redeem/holdings
-    + OTC-loan read queries. Deferred: Structured Earn (dual investment), and
-    possibly Broker/Affiliate/Copy-trading in a later phase.
+    offline-tested; tagged `v2.4.0`. Earn products/purchase/redeem/holdings
+    + OTC-loan read queries. Deferred: Structured Earn (dual investment).
+  - **Phase D — Sub-Account management** (`subaccount/`): ✅ implemented &
+    offline-tested; to be tagged `v2.5.0`. Create/permissions, summaries +
+    spot balances (single/paged), spot API-key CRUD. Excluded: futures
+    sub-account balance (futures host) + deprecated V1 list endpoints.
+  - **Phase E — Convert** (`convert/`): ⏳ next (`v2.6.0`).
+  - **Phase F — Affiliate + Copy-trading** (`affiliate/`, `copytrading/`):
+    planned (`v2.7.0`).
+  - **Phase G — Broker (nd + api, partner-only)** (`broker/`): planned
+    (`v2.8.0`).
+  - **Phase H — UTA / API v3.0** (`uta/`): separate large track (`/api/ua/v1/*`,
+    unified account); its own sub-plan after D–G, likely the `v3.0.0` line.
 
 ### ✅ Reconciled against live API (v1.0)
 Wire field names below were taken from KuCoin docs + official SDKs and have

@@ -6,7 +6,7 @@ built for HFT / market-making workloads.
 - **Module:** `github.com/tonymontanov/go-kucoin/v2`
 - **Go:** 1.24+
 - **API target:** KuCoin **Classic** API (not the new UTA / unified-account family)
-- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5** profiles implemented & offline-tested on the `v2.5` branch (live-validation pending): **Phase A — Margin** (HF cross/isolated, `v2.2.0`), **Phase B — Account & Funding** (`v2.3.0`), **Phase C — Earn + VIP Lending** (`v2.4.0`).
+- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5** profiles implemented & offline-tested on the `v2.5` branch (live-validation pending): **Phase A — Margin** (HF cross/isolated, `v2.2.0`), **Phase B — Account & Funding** (`v2.3.0`), **Phase C — Earn + VIP Lending** (`v2.4.0`), **Phase D — Sub-Account management** (`v2.5.0`).
 
 The design mirrors the sibling in-house SDKs (`go-okx` / `go-bybit` / `go-bitget`):
 a neutral transport core plus thin, section-specific profiles.
@@ -148,6 +148,21 @@ _Deferred: Structured Earn (dual investment) — KuCoin reports those endpoints 
 
 ---
 
+## Features (Sub-Account management v2.5 — Phase D)
+
+> Additive profile on the spot host (`api.kucoin.com`). **Master-account only** —
+> all endpoints are private (signed) and must use a master-account API key.
+
+**Sub-accounts (`subaccount/`)**
+- Create a sub-account and grant **margin / futures** permission
+- List sub-account summaries (paged) and **spot balances** (single + paged)
+- Spot sub-account **API-key lifecycle**: create / list / modify / delete
+  (the API secret + passphrase are returned **once** on create)
+
+_Excluded: the futures sub-account balance endpoint (futures host) and the deprecated V1 list endpoints._
+
+---
+
 ## Install
 
 ```bash
@@ -286,10 +301,14 @@ kucoin.Client (root)              shared transport + signing + config
   │    ├─ Get*Products()          savings/promotion/staking/kcs/eth
   │    ├─ Purchase()/Redeem()     subscribe / redeem (+ preview)
   │    └─ GetHoldings()           current Earn positions
-  └─ viplending.Client (profile)  layer 2: api.kucoin.com, OTC loan (v2.5)
-       ├─ GetCollateralConfigs()  gradient discount rates
-       ├─ GetLoanInfo()           orders + LTV + collateral
-       └─ GetAccounts()           participating accounts
+  ├─ viplending.Client (profile)  layer 2: api.kucoin.com, OTC loan (v2.5)
+  │    ├─ GetCollateralConfigs()  gradient discount rates
+  │    ├─ GetLoanInfo()           orders + LTV + collateral
+  │    └─ GetAccounts()           participating accounts
+  └─ subaccount.Client (profile)  layer 2: api.kucoin.com, sub-accounts (v2.5)
+       ├─ Create()/Enable*()      create + margin/futures permission
+       ├─ GetSummaries()/GetBalance(s)()  summaries + spot balances
+       └─ *APIKey()               spot sub-account API-key CRUD
 ```
 
 - A single neutral core (`internal/*`) handles HTTP transport, the KuCoin
@@ -344,6 +363,9 @@ common branches.
   - **Phase A — Margin** (HF cross/isolated): implemented & offline-tested → `v2.2.0`.
   - **Phase B — Account & Funding:** implemented & offline-tested; live-validation pending → `v2.3.0`.
   - **Phase C — Earn + VIP Lending:** implemented & offline-tested; live-validation pending → `v2.4.0`.
+  - **Phase D — Sub-Account management:** implemented & offline-tested; live-validation pending → `v2.5.0`.
+  - **Phase E — Convert · Phase F — Affiliate + Copy-trading · Phase G — Broker (partner-only):** planned (`v2.6.0`–`v2.8.0`).
+  - **Phase H — UTA / API v3.0** (`/api/ua/v1/*`, unified account): separate large track, planned `v3.0.0` line.
 
 ---
 

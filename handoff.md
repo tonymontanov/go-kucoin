@@ -58,6 +58,8 @@ go-kucoin/
 │   └── types/             # futures-specific + layer-1 aliases
 ├── spot/                  # layer-2 Spot profile (v2.0)
 │   └── types/             # spot-specific + layer-1 aliases
+├── margin/                # layer-2 Margin profile (v2.5, HF cross/isolated)
+│   └── types/             # margin-specific + layer-1 aliases
 ├── examples/              # runnable demos (public / private / spot-*)
 ├── README.md              # public overview + quick start
 └── docs/                  # source ToR (TS-SINGLE-EXCHANGE-SDK*.md)
@@ -101,7 +103,7 @@ futures.Client (profile)            <- layer 2 (section specifics)
 ## 3. Roadmap
 
 Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
-**v2.5** = remaining sections.
+**v2.5** = remaining sections (Phase A Margin · B Account/Funding · C Earn).
 
 > **Milestone — v1.0 Futures MVP COMPLETE & PUBLISHED.** The SDK was
 > live-validated end-to-end against KuCoin (public + private + trade + WS) on
@@ -126,6 +128,32 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > int64 for the QUOTED `time` on the `/account/balance` private push — fixes
 > the dropped inventory WS). Build / vet / race green; offline contract + unit
 > tests added. Published as **`v2.1.0`**.
+
+> **Milestone — v2.5 Phase A (Margin) IMPLEMENTED (SDK-only, offline-tested).**
+> New ADDITIVE `margin/` profile on `v2.5` branch — zero changes to the
+> `futures/`/`spot/` profiles or shared `internal/` public surface, so the
+> stable desk integration cannot regress. Targets the **HF** margin family
+> exclusively: KuCoin completed the LF→HF margin migration on **2026-03-04**
+> and retired the legacy `/api/v1/margin/order` LF order endpoints, so the
+> earlier "HF + Classic LF" plan is moot — only HF remains (a deprecated
+> `/api/v1/margin/order` "Add Order - V1" shim with no cancel/query counterpart
+> is intentionally NOT wrapped). Coverage: MarketData (cross/isolated symbols,
+> mark price single+all, margin config), Trading (HF place + test, cancel by
+> id/clientOid/all-by-symbol, open/closed/active-symbols queries, fills —
+> `tradeType` MARGIN_TRADE/MARGIN_ISOLATED_TRADE, `isIsolated`/`autoBorrow`/
+> `autoRepay`), Borrow (borrow/repay + histories, interest history, v3 leverage
+> update), RiskLimit (cross/isolated `/api/v3/margin/currencies`), Account
+> (cross `/api/v3/margin/accounts` + isolated `/api/v3/isolated/accounts`,
+> balances+liabilities+debt ratio), Stream (PRIVATE margin order updates on the
+> spot/margin `/spotMarket/tradeOrders` channel). DESIGN: margin trades on the
+> spot matching engine, so the PUBLIC order book / ticker / trades are
+> IDENTICAL to Spot — the margin profile does NOT duplicate them (use the spot
+> profile), avoiding copy-paste per the two-layer rule. Endpoints/shapes
+> verified against KuCoin docs + the official `kucoin-universal-sdk` spec CSV.
+> Build / vet / race green; offline contract + unit tests added. NOT yet
+> live-validated; stop/OCO margin orders and the margin lending market
+> ("Credit": project/purchase/redeem) are deferred fast-follows. To be tagged
+> **`v2.2.0`**.
 
 ### ✅ Done
 
@@ -251,6 +279,41 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
       frame, which looked like "inventory WS not working" (only the 60s REST
       poll moved the position).
 
+- `margin/` — **layer-2 Margin profile (v2.5 Phase A, HF cross/isolated)**:
+  - `doc.go` — profile overview (HF-only rationale, scope, spot-shared public
+    market data, deferred stop/OCO + lending).
+  - `client.go` — profile client + sub-client factories (`MarketData`,
+    `Trading`, `Borrow`, `Account`, `RiskLimit`, `Stream`) + `init()` factory
+    registration; default trade type (cross/isolated). Builds its own REST
+    client on the spot host via `kucoin.SpotFamilyBaseURL`.
+  - `helpers.go` — REST GET/POST/DELETE wrappers, clientOid gen (`kcm-…`),
+    validation + auth error constructors, ns→ms.
+  - `market.go` — cross/isolated symbols, mark price (single + all), margin
+    config.
+  - `trading.go` — HF place + test, cancel (id / clientOid / all-by-symbol),
+    open / closed / active-symbols / order-by-id / by-clientOid / fills.
+    Body carries `isIsolated`/`autoBorrow`/`autoRepay`; queries require
+    `symbol`+`tradeType`.
+  - `borrow.go` — borrow / repay (+ histories), interest history, v3 leverage
+    update.
+  - `account.go` — cross + isolated account snapshots (balances + liabilities
+    + debt ratio).
+  - `risk-limit.go` — cross/isolated risk limit + borrow config.
+  - `stream.go` — private bullet WS + `WatchOrders` (`/spotMarket/tradeOrders`,
+    margin `tradeType`); `flexInt64` for bare/quoted timestamps.
+  - `margin/types/*` — CreateOrderRequest, OrderInfo, Fill, SymbolInfo +
+    IsolatedSymbol, MarkPrice/MarginConfig, Cross/IsolatedMarginAccount,
+    Borrow/Repay/Debit/Interest, Cross/IsolatedRiskLimit + layer-1 alias
+    re-exports + margin enums (TradeType cross/isolated, QueryType, STP,
+    GTT/FOK, BorrowIOC/FOK).
+  - Tests: `trading_test.go` (body builder + isIsolated derivation),
+    `contract_rest_test.go` (mock REST end-to-end across market/orders/account/
+    borrow/risk-limit), `stream_private_test.go` (`flexInt64` bare/quoted).
+    Race-clean.
+  - Root wiring (additive): `RegisterMarginFactory` + `Client.Margin()` in
+    `client.go`; exported `SpotFamilyBaseURL` host resolver in `config.go`
+    (shared by spot-family section profiles).
+
 - **Repo B (market-making-desk-core) — `kucoin/spot` connector (DONE,
   live-validated):** mirrors `kucoin/futures` on the `kucoin-connector`
   branch. Spot specifics: size in base currency (not contracts); position =
@@ -264,8 +327,16 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 
 ### 🔧 In progress
 
-- **v2.5 — remaining sections** (next): cover the rest of the exchange surface
-  on top of the stable Futures + Spot core.
+- **v2.5 — remaining sections** on top of the stable Futures + Spot core
+  (additive `v2.5` branch):
+  - **Phase A — Margin** (`margin/`): ✅ implemented & offline-tested; awaiting
+    live validation + tag `v2.2.0`. Fast-follows: stop/OCO margin orders, the
+    margin lending market ("Credit").
+  - **Phase B — Account/Funding** (`account/`, planned, `v2.3.0`): account
+    summary/ledgers, transfers, deposit/withdrawal (v3), trade-fee, currencies,
+    sub-accounts.
+  - **Phase C — Earn** (`earn/`, planned, `v2.4.0`): Earn, VIP Lending, and
+    possibly Broker/Affiliate.
 
 ### ✅ Reconciled against live API (v1.0)
 Wire field names below were taken from KuCoin docs + official SDKs and have

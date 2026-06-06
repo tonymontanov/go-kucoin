@@ -202,6 +202,33 @@ type OrderbookConfig struct {
 	MaxDepth int
 }
 
+// SpotFamilyBaseURL resolves the REST host for section profiles that live on
+// the SPOT host family (api.kucoin.com) rather than the futures host — Spot,
+// Margin (v2.5) and the cross-cutting Account profile. The root Config
+// defaults its REST host to the FUTURES endpoint, so:
+//   - a futures host (prod/sandbox) or empty resolves to the spot host
+//     (sandbox when Demo is set);
+//   - any OTHER explicit URL (mock server / deliberate override) is honoured
+//     as-is so tests and advanced embedders keep control.
+//
+// Profiles call this when building their own rest.Client via
+// Client.NewSectionRESTClient. (The spot profile predates this helper and
+// keeps an equivalent private resolver; new profiles share this one to avoid
+// duplicating the host logic.)
+func SpotFamilyBaseURL(cfg Config) string {
+	switch cfg.REST.BaseURL {
+	case "", DefaultFuturesRestBaseURL:
+		if cfg.Demo {
+			return DefaultSpotSandboxRestBaseURL
+		}
+		return DefaultSpotRestBaseURL
+	case DefaultFuturesSandboxRestBaseURL:
+		return DefaultSpotSandboxRestBaseURL
+	default:
+		return cfg.REST.BaseURL
+	}
+}
+
 // DefaultConfig returns a Config pre-populated with production endpoints
 // and HFT-friendly timeouts. Callers can override individual fields and
 // pass the result to NewClient — empty sub-fields fall back to these

@@ -6,7 +6,7 @@ built for HFT / market-making workloads.
 - **Module:** `github.com/tonymontanov/go-kucoin/v2`
 - **Go:** 1.24+
 - **API target:** KuCoin **Classic** API (not the new UTA / unified-account family)
-- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`).
+- **Status:** **v1.0 — Futures (USD-M perpetuals)** and **v2.0 — Spot** complete and live-validated (`v2.1.0`). **v2.5 Phase A — Margin** (HF cross/isolated) implemented & offline-tested on the `v2.5` branch (live-validation pending).
 
 The design mirrors the sibling in-house SDKs (`go-okx` / `go-bybit` / `go-bitget`):
 a neutral transport core plus thin, section-specific profiles.
@@ -66,6 +66,38 @@ its own signed transport sharing the root signer + observers).
 - Public: managed level-2 order book (full-depth or `level2_100` seed +
   multi-change-per-frame sequence reconcile + auto re-seed on gap), ticker, match (trades), candles
 - Private: order lifecycle (`tradeOrders`), wallet/balance
+
+---
+
+## Features (Margin v2.5 — Phase A)
+
+> Additive `margin/` profile (on the `v2.5` branch). HF **only** — KuCoin
+> retired the legacy LF margin order endpoints in the 2026-03-04 HF migration.
+> Margin trades on the spot matching engine, so the live order book / ticker /
+> trades are identical to Spot — use the spot profile for those; this profile
+> adds the margin-specific surface below.
+
+**Market data (REST)**
+- Cross-margin symbols (`/api/v3/margin/symbols`) + isolated-margin pair config
+- Mark price (single + all symbols), global margin config
+
+**Trading (REST, HF)**
+- Place limit / market (market by `size` or `funds`) + validate-only test order
+- `isIsolated` / `autoBorrow` / `autoRepay`; cross (`MARGIN_TRADE`) vs isolated (`MARGIN_ISOLATED_TRADE`)
+- Cancel by id / clientOid / all-by-symbol; open / closed / active-symbols / order & fill queries
+- GTT / GTC / IOC / FOK, post-only, STP
+
+**Borrow / debit (REST)**
+- Borrow, repay, borrow/repay/interest history, v3 leverage update
+
+**Risk limit & account (REST)**
+- Cross/isolated risk limit + borrow config (`/api/v3/margin/currencies`)
+- Cross (`/api/v3/margin/accounts`) + isolated (`/api/v3/isolated/accounts`) accounts (balances + liabilities + debt ratio)
+
+**WebSocket**
+- Private: margin order lifecycle on the spot/margin `tradeOrders` channel (filter by `TradeType`)
+
+_Deferred fast-follows: stop/OCO margin orders, the margin lending market ("Credit")._
 
 ---
 
@@ -184,11 +216,18 @@ kucoin.Client (root)              shared transport + signing + config
   │    ├─ Trading()               place/cancel/batch, queries, fills
   │    ├─ Account()               balance, positions, leverage
   │    └─ Stream()                public + private WebSocket
-  └─ spot.Client (profile)        layer 2: api.kucoin.com (own signed REST)
-       ├─ MarketData()            symbols, klines, orderbook (incl. full depth)
-       ├─ Trading()               place/cancel/batch (size or funds), queries, fills
-       ├─ Account()               accounts + balance
-       └─ Stream()                public + private WebSocket
+  ├─ spot.Client (profile)        layer 2: api.kucoin.com (own signed REST)
+  │    ├─ MarketData()            symbols, klines, orderbook (incl. full depth)
+  │    ├─ Trading()               place/cancel/batch (size or funds), queries, fills
+  │    ├─ Account()               accounts + balance
+  │    └─ Stream()                public + private WebSocket
+  └─ margin.Client (profile)      layer 2: api.kucoin.com, HF margin (v2.5)
+       ├─ MarketData()            cross/isolated symbols, mark price, margin config
+       ├─ Trading()               HF place/cancel (cross/isolated), queries, fills
+       ├─ Borrow()                borrow/repay (+ histories), interest, leverage
+       ├─ Account()               cross/isolated accounts (balances + liabilities)
+       ├─ RiskLimit()             cross/isolated risk limit + borrow config
+       └─ Stream()                private margin order WS (book/ticker via spot)
 ```
 
 - A single neutral core (`internal/*`) handles HTTP transport, the KuCoin
@@ -239,7 +278,10 @@ common branches.
 
 - ✅ **v1.0 — Futures (USD-M perpetuals):** complete, live-validated, published as `v2.0.0`.
 - ✅ **v2.0 — Spot:** complete, live-validated, published as `v2.1.0`.
-- 📋 **v2.5 — remaining sections.**
+- 🔄 **v2.5 — remaining sections** (additive `v2.5` branch):
+  - **Phase A — Margin** (HF cross/isolated): implemented & offline-tested; live-validation pending → `v2.2.0`.
+  - **Phase B — Account/Funding:** planned (`v2.3.0`).
+  - **Phase C — Earn:** planned (`v2.4.0`).
 
 ---
 

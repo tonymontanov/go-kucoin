@@ -52,6 +52,9 @@ type Client struct {
 
 	spotOnce sync.Once
 	spotVal  any
+
+	marginOnce sync.Once
+	marginVal  any
 }
 
 // NewClient validates cfg, fills defaults, and returns a configured root
@@ -193,6 +196,33 @@ func (c *Client) Spot() any {
 		c.spotVal = spotFactory(c)
 	})
 	return c.spotVal
+}
+
+// marginFactory is set by margin.init() via RegisterMarginFactory.
+var marginFactory func(c *Client) any
+
+// RegisterMarginFactory wires the margin.Client builder. Idempotent.
+// Available from v2.5 (HF cross/isolated margin trading).
+func RegisterMarginFactory(f func(c *Client) any) {
+	if marginFactory == nil {
+		marginFactory = f
+	}
+}
+
+// Margin returns the *margin.Client (typed as any). nil when the margin
+// package has not been imported. Available from v2.5. The margin profile
+// shares the spot host (api.kucoin.com) and the spot public market data /
+// order book; it adds HF margin trading, borrow/repay, risk limit and the
+// cross/isolated margin accounts.
+func (c *Client) Margin() any {
+	c.marginOnce.Do(func() {
+		if marginFactory == nil {
+			c.logger.Warn(`kucoin.Client.Margin: margin factory is not registered; import _ "github.com/tonymontanov/go-kucoin/v2/margin"`)
+			return
+		}
+		c.marginVal = marginFactory(c)
+	})
+	return c.marginVal
 }
 
 // Compile-time assertion: *Error implements the error interface.

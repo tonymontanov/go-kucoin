@@ -405,8 +405,19 @@ common branches.
   - **Phase D — Sub-Account management:** implemented & offline-tested; live-validation pending → `v2.5.0`.
   - **Phase E — Convert:** implemented & offline-tested; live-validation pending → `v2.6.0`.
   - **Phase F — Affiliate + Copy-trading:** implemented & offline-tested; live-validation pending → `v2.7.0`.
-  - **Phase G — Broker (partner-only):** planned (`v2.8.0`).
-  - **Phase H — UTA / API v3.0** (`/api/ua/v1/*`, unified account): separate large track, planned `v3.0.0` line.
+  - ⏸ **Phase G — Broker (partner-only): deferred.** The ND-broker endpoints
+    live on a dedicated host (`api-broker.kucoin.com`) and require extra
+    partner-signature headers (`KC-API-PARTNER` / `KC-API-PARTNER-SIGN` /
+    `KC-BROKER-NAME`) synchronised with the main `KC-API-SIGN` timestamp, and
+    KuCoin currently flags several of them as deprecated / migrated (404). It is
+    also usable only under a partner agreement, so it is parked until there is a
+    concrete need.
+  - ⏸ **Phase H — UTA / API v3.0** (`/api/ua/v1/*`, unified account): **deferred
+    until General Availability.** KuCoin's own docs mark the Unified Trading
+    Account API as pre-release ("has not been officially released yet… DO NOT use
+    in production… subject to change without prior notice"), and the 2026 change
+    log already carries breaking field-type changes. It will be picked up as a
+    separate `v3.0.0` track once the API stabilises.
 
 ---
 

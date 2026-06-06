@@ -117,7 +117,9 @@ futures.Client (profile)            <- layer 2 (section specifics)
 ## 3. Roadmap
 
 Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
-**v2.5** = remaining sections (Phase A Margin · B Account/Funding · C Earn).
+**v2.5** = remaining classic sections (Phase A Margin · B Account/Funding ·
+C Earn + VIP Lending · D Sub-Account · E Convert · F Affiliate + Copy-Trading;
+Broker + UTA/API v3.0 deferred) · **v3.0** = UTA / unified account (future).
 
 > **Milestone — v1.0 Futures MVP COMPLETE & PUBLISHED.** The SDK was
 > live-validated end-to-end against KuCoin (public + private + trade + WS) on
@@ -270,7 +272,21 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 > offline-tested only. Copy-trading supports ISOLATED margin only (CROSS →
 > 180204), max 20x, hedge-mode PositionSide (LONG/SHORT/BOTH). Shapes verified
 > against KuCoin docs + the official-pattern KuCoin SDK. Build / vet / race green;
-> offline contract tests added. NOT yet live-validated. To be tagged **`v2.7.0`**.
+> offline contract tests added. NOT yet live-validated. Published as **`v2.7.0`**.
+
+> **Milestone — v2.5 section build-out COMPLETE & MERGED TO `main`.** All planned
+> v2.5 profiles (Phase A Margin · B Account/Funding · C Earn + VIP Lending ·
+> D Sub-Account · E Convert · F Affiliate + Copy-Trading) are implemented,
+> offline-tested (build / vet / race green) and published as `v2.2.0` → `v2.7.0`.
+> The `v2.5` branch was fast-forward-merged into `main` so the full SDK is public.
+> Every v2.5 profile is strictly ADDITIVE: new packages only, with their own REST
+> clients on the appropriate host (spot-family via `kucoin.SpotFamilyBaseURL`,
+> copy-trading via the parent's futures REST), and ZERO changes to the shared
+> `internal/*` public surface or the live-validated `futures/` / `spot/` profiles —
+> so the stable `market-making-desk-core` integration cannot regress. Two sections
+> are intentionally DEFERRED (see roadmap below): Broker (partner-only, dedicated
+> host + partner-signature, partly deprecated) and UTA / API v3.0 (KuCoin marks it
+> pre-release / not-for-production with breaking changes still landing).
 
 ### ✅ Done
 
@@ -573,13 +589,29 @@ Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
     tagged `v2.6.0`. Public symbol/currency directories + market & limit convert
     order lifecycle.
   - **Phase F — Affiliate + Copy-trading** (`affiliate/`, `copytrading/`): ✅
-    implemented & offline-tested; to be tagged `v2.7.0`. Affiliate commission +
+    implemented & offline-tested; tagged `v2.7.0`. Affiliate commission +
     rebate (spot host); futures copy-trade order/margin lifecycle (futures host,
     lead-trader account required).
-  - **Phase G — Broker (nd + api, partner-only)** (`broker/`): planned
-    (`v2.8.0`).
-  - **Phase H — UTA / API v3.0** (`uta/`): separate large track (`/api/ua/v1/*`,
-    unified account); its own sub-plan after D–G, likely the `v3.0.0` line.
+  - **Phase G — Broker (nd + api, partner-only)** (`broker/`): ⏸ **DEFERRED.**
+    ND-broker lives on a dedicated host (`api-broker.kucoin.com`) and needs extra
+    partner-signature headers (`KC-API-PARTNER` / `KC-API-PARTNER-SIGN` /
+    `KC-BROKER-NAME`, where `KC-API-PARTNER-SIGN = base64(HMAC-SHA256(broker-key,
+    timestamp+partner+apiKey))` using the SAME timestamp as `KC-API-SIGN`). The
+    shared `internal/rest` generates the timestamp + main signature internally and
+    cannot inject partner headers, so a clean (additive, no `internal/*` edits)
+    implementation needs a self-contained HTTP+signing layer inside `broker/`.
+    KuCoin also flags several ND endpoints as deprecated/migrated (404), and the
+    surface is partner-agreement-only. Parked until there is a concrete need.
+  - **Phase H — UTA / API v3.0** (`uta/`): ⏸ **DEFERRED until GA.** KuCoin's own
+    docs mark the Unified Trading Account API (`/api/ua/v1/*`, unified domain
+    `api.kucoin.com`, `{accountMode}` path param) as pre-release: "has not been
+    officially released yet… DO NOT use in production… subject to change without
+    prior notice", and the 2026 change log already carries breaking field-type
+    changes (`os`/`status` String→Number, `ts`→ns). Phase 1 covers only Spot +
+    Futures (Margin/Options "throughout 2026"). Will be a separate, strictly
+    additive `uta/` profile (own REST client on the unified host, zero
+    `internal/*`/`futures/`/`spot/` edits) once the API stabilises — likely the
+    `v3.0.0` line.
 
 ### ✅ Reconciled against live API (v1.0)
 Wire field names below were taken from KuCoin docs + official SDKs and have

@@ -99,3 +99,101 @@ func TestFlexInt64_Forms(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------
+// /spotMarket/tradeOrders lifecycle frames — fill fields (v2.8).
+// Frame shapes follow the documented V1 push (kucoin-universal-sdk
+// OrderV1Event field list): matchSize/matchPrice/tradeId/liquidity exist on
+// "match" frames only; other frames omit them or ship "".
+// ---------------------------------------------------------------------
+
+// TestOrderPush_MatchCarriesExecution — a "match" frame surfaces the
+// execution (size/price/tradeId/liquidity), the lifecycle type and the raw
+// nanosecond ts alongside the cumulative DealSize.
+func TestOrderPush_MatchCarriesExecution(t *testing.T) {
+	var raw = []byte(`{
+		"symbol":"KCS-USDT","orderType":"limit","side":"sell",
+		"orderId":"5efab07953bdea00089965fa","liquidity":"maker","type":"match",
+		"feeType":"makerFee","orderTime":1593487482038606180,"size":"0.1",
+		"filledSize":"0.04","price":"0.938","matchPrice":"0.96738","matchSize":"0.04",
+		"tradeId":"5efab07a4ee4c7000a19d690","clientOid":"1593487481000313",
+		"remainSize":"0.06","status":"match","ts":1593487482038606180
+	}`)
+	var o, err = DecodeOrderPush(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if o.EventType != "match" || o.TradeID != "5efab07a4ee4c7000a19d690" {
+		t.Fatalf("EventType/TradeID = %q/%q", o.EventType, o.TradeID)
+	}
+	if !o.MatchSize.Equal(decimal.RequireFromString("0.04")) || !o.MatchPrice.Equal(decimal.RequireFromString("0.96738")) {
+		t.Fatalf("MatchSize/MatchPrice = %s/%s", o.MatchSize, o.MatchPrice)
+	}
+	if o.Liquidity != "maker" {
+		t.Fatalf("Liquidity = %q, want maker", o.Liquidity)
+	}
+	if !o.DealSize.Equal(decimal.RequireFromString("0.04")) || !o.Size.Equal(decimal.RequireFromString("0.1")) {
+		t.Fatalf("DealSize/Size = %s/%s", o.DealSize, o.Size)
+	}
+	if o.TsNs != 1593487482038606180 || o.UpdatedAtMs != 1593487482038 {
+		t.Fatalf("TsNs/UpdatedAtMs = %d/%d", o.TsNs, o.UpdatedAtMs)
+	}
+	if !o.IsActive || o.Status != "match" {
+		t.Fatalf("IsActive/Status = %v/%q", o.IsActive, o.Status)
+	}
+}
+
+// TestOrderPush_FilledWithoutMatchFields — the terminal "filled" frame has no
+// execution fields: MatchSize/TradeID stay zero, DealSize is the cumulative.
+func TestOrderPush_FilledWithoutMatchFields(t *testing.T) {
+	var raw = []byte(`{
+		"symbol":"KCS-USDT","orderType":"limit","side":"sell",
+		"orderId":"5efab07953bdea00089965fa","type":"filled",
+		"orderTime":1593487482038606180,"size":"0.1","filledSize":"0.1",
+		"price":"0.938","clientOid":"1593487481000313","remainSize":"0",
+		"status":"done","ts":1593487482038606180
+	}`)
+	var o, err = DecodeOrderPush(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if o.EventType != "filled" || o.Status != "done" || o.IsActive {
+		t.Fatalf("EventType/Status/IsActive = %q/%q/%v", o.EventType, o.Status, o.IsActive)
+	}
+	if !o.MatchSize.IsZero() || !o.MatchPrice.IsZero() || o.TradeID != "" || o.Liquidity != "" {
+		t.Fatalf("execution fields must be zero on filled: %+v", o)
+	}
+	if !o.DealSize.Equal(decimal.RequireFromString("0.1")) {
+		t.Fatalf("DealSize = %s, want 0.1", o.DealSize)
+	}
+}
+
+// TestOrderPush_EmptyMatchFieldsDecode — KuCoin ships "" for matchSize /
+// matchPrice on non-match frames; the frame must still decode (flexDecimal).
+func TestOrderPush_EmptyMatchFieldsDecode(t *testing.T) {
+	var raw = []byte(`{
+		"symbol":"KCS-USDT","orderType":"limit","side":"buy",
+		"orderId":"5efab07953bdea00089965d2","type":"open","matchSize":"","matchPrice":"",
+		"liquidity":"","orderTime":1593487481683297666,"size":"0.1","filledSize":"0",
+		"price":"0.937","clientOid":"1593487481000906","remainSize":"0.1",
+		"status":"open","ts":1593487481683297666
+	}`)
+	var o, err = DecodeOrderPush(raw)
+	if err != nil {
+		t.Fatalf("decode with empty matchSize/matchPrice failed: %v", err)
+	}
+	if o.EventType != "open" || !o.MatchSize.IsZero() || !o.MatchPrice.IsZero() {
+		t.Fatalf("toOrderInfo = %+v", o)
+	}
+	// Quoted / bare numeric forms still decode through flexDecimal.
+	var f flexDecimal
+	if err = f.UnmarshalJSON([]byte(`"1.5"`)); err != nil || !f.Equal(decimal.RequireFromString("1.5")) {
+		t.Fatalf("quoted: %v %s", err, f.Decimal)
+	}
+	if err = f.UnmarshalJSON([]byte(`2`)); err != nil || !f.Equal(decimal.NewFromInt(2)) {
+		t.Fatalf("bare: %v %s", err, f.Decimal)
+	}
+	if err = f.UnmarshalJSON([]byte(`null`)); err != nil || !f.IsZero() {
+		t.Fatalf("null: %v %s", err, f.Decimal)
+	}
+}

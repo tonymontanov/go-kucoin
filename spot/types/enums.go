@@ -105,3 +105,18 @@ const (
 	// TradeMargin — cross-margin trading account ("MARGIN_TRADE").
 	TradeMargin TradeType = "MARGIN_TRADE"
 )
+
+// ---- Liquidity -----------------------------------------------------------
+
+// Liquidity — maker/taker flag of one execution, as reported by the private
+// "/spotMarket/tradeOrders" match push (`liquidity`). NB: KuCoin reports
+// "taker" for a maker order matched against a hidden/iceberg counterparty;
+// the fee actually charged follows `feeType`, which the push also carries.
+type Liquidity string
+
+const (
+	// LiquidityMaker — the fill added liquidity.
+	LiquidityMaker Liquidity = "maker"
+	// LiquidityTaker — the fill removed liquidity.
+	LiquidityTaker Liquidity = "taker"
+)

@@ -117,6 +117,18 @@ type Subscription struct {
 	// orderbook engine to drop local state so the next snapshot is treated
 	// as the new authoritative book. May be nil.
 	Reset func()
+	// Ready is called once per successful (re)connect, AFTER the subscribe
+	// op for this topic has been re-sent on the fresh socket and BEFORE the
+	// first push of that connection is dispatched to Handler. It runs on
+	// the read-loop goroutine, outside the registry lock, so — unlike
+	// Reset — it may perform blocking work (e.g. a REST reseed of private
+	// order state): the only cost is that reads on this socket wait until
+	// it returns (the ping loop keeps running). Ordering guarantee: no push
+	// of the new connection reaches Handler before Ready returns.
+	// NOT invoked for a Subscribe issued while the socket is already up —
+	// such a caller seeds its own state right after Subscribe returns.
+	// May be nil.
+	Ready func()
 }
 
 // Config — parameters for a single KuCoin WS connection. Populated from the
@@ -395,6 +407,10 @@ func (c *Conn) connectAndRun(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		defer loopCancel()
+		// Ready hooks run on the read goroutine before the first frame of
+		// this connection is read: a consumer reseeding state inside Ready
+		// is guaranteed that no push of the new socket precedes the reseed.
+		c.notifyReady(loopCtx, subsCopy)
 		readErr = c.readLoop(loopCtx, socket)
 	}()
 	go func() {
@@ -410,6 +426,21 @@ func (c *Conn) connectAndRun(ctx context.Context) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+// notifyReady invokes the Ready hook of every subscription re-sent on a
+// fresh socket, in registry order. Stops early once ctx is cancelled (the
+// connection is going away, a reseed would be wasted work).
+func (c *Conn) notifyReady(ctx context.Context, subs []*Subscription) {
+	var i int
+	for i = 0; i < len(subs); i++ {
+		if ctx.Err() != nil {
+			return
+		}
+		if subs[i].Ready != nil {
+			subs[i].Ready()
+		}
+	}
 }
 
 // awaitWelcome blocks until the server's {"type":"welcome"} frame arrives

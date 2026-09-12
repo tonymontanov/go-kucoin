@@ -17,6 +17,19 @@ REST shapes; the converters below map the overlapping fields into the same
 typed structs (OrderInfo / PositionInfo / Balance). Fields the WS frame does
 not carry are left at their zero value.
 
+ORDER LIFECYCLE PUSH: every tradeOrders frame carries the lifecycle event
+(`type`: open/match/filled/canceled/update) and, on "match", the execution
+itself (`matchSize` in contracts, `matchPrice`, `tradeId`, `liquidity`). All
+of them are surfaced on OrderInfo (EventType, MatchSize, MatchPrice, TradeID,
+Liquidity, TsNs) so a consumer can build an exact fill ledger. Non-match
+frames ship `matchSize`/`matchPrice` as "" — flexDecimal decodes that to
+zero instead of failing the whole frame.
+
+RECONNECT HOOK: WatchOrdersWithOptions{OnConnect} fires on every (re)connect
+of the private socket after the tradeOrders subscription was re-sent and
+before the first push of that connection — the consumer reseeds its order
+state there (see ws.Subscription.Ready).
+
 HANDLER CONTRACT: handlers run on the read-loop goroutine — O(1), non-blocking.
 */
 
@@ -32,8 +45,48 @@ import (
 	roottypes "github.com/tonymontanov/go-kucoin/v2/types"
 )
 
+/*
+flexDecimal decodes a decimal that KuCoin may ship as a quoted number, a bare
+number, an EMPTY string or omit entirely. The tradeOrders push carries
+`matchSize`/`matchPrice` only on "match" frames and sends "" on the others;
+a plain decimal.Decimal rejects "" and — because the decoder fails on the
+WHOLE frame — the open/canceled/filled push would be silently dropped.
+Empty / null / absent → zero.
+*/
+type flexDecimal struct{ decimal.Decimal }
+
+func (f *flexDecimal) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" || string(b) == `""` {
+		f.Decimal = decimal.Zero
+		return nil
+	}
+	return f.Decimal.UnmarshalJSON(b)
+}
+
+// OrderStreamOptions — optional hooks for WatchOrdersWithOptions.
+type OrderStreamOptions struct {
+	// OnConnect is invoked on the read-loop goroutine after every successful
+	// (re)connect of the private socket, once the tradeOrders subscription
+	// has been (re)sent and BEFORE the first push of that connection reaches
+	// the handler. A consumer that keeps order state reseeds it here (e.g. a
+	// REST open-orders snapshot) with the guarantee that no push of the new
+	// connection precedes the reseed. It may block — only this socket's
+	// reads wait for it; the heartbeat keeps running.
+	// NOT invoked when the private socket is already connected at
+	// subscription time: seed once right after WatchOrdersWithOptions
+	// returns, then rely on OnConnect for reconnects. May be nil.
+	OnConnect func()
+}
+
 // WatchOrders subscribes to account-wide order lifecycle updates.
 func (s *StreamClient) WatchOrders(ctx context.Context, handler func(*futurestypes.OrderInfo)) error {
+	return s.WatchOrdersWithOptions(ctx, handler, OrderStreamOptions{})
+}
+
+// WatchOrdersWithOptions is WatchOrders plus the reconnect hook (see
+// OrderStreamOptions). Subscribing the same topic twice replaces the earlier
+// handler on the shared private connection — fan out in the caller.
+func (s *StreamClient) WatchOrdersWithOptions(ctx context.Context, handler func(*futurestypes.OrderInfo), opts OrderStreamOptions) error {
 	if handler == nil {
 		return errInvalidRequest("WatchOrders", "handler is required")
 	}
@@ -47,14 +100,29 @@ func (s *StreamClient) WatchOrders(ctx context.Context, handler func(*futurestyp
 		Topic:          "/contractMarket/tradeOrders",
 		PrivateChannel: true,
 		Handler: func(_, _ string, data []byte) {
-			var w orderPushWire
-			if codecUnmarshal(data, &w) != nil {
+			var o futurestypes.OrderInfo
+			var perr error
+			o, perr = DecodeOrderPush(data)
+			if perr != nil {
 				return
 			}
-			var o futurestypes.OrderInfo = w.toOrderInfo()
 			handler(&o)
 		},
+		Ready: opts.OnConnect,
 	})
+}
+
+// DecodeOrderPush decodes the `data` payload of a /contractMarket/tradeOrders
+// push into OrderInfo — the exact conversion WatchOrders applies. Exported
+// so consumers can replay recorded frames (tests, offline analysis) through
+// the same decoder.
+func DecodeOrderPush(data []byte) (futurestypes.OrderInfo, error) {
+	var w orderPushWire
+	var err error = codecUnmarshal(data, &w)
+	if err != nil {
+		return futurestypes.OrderInfo{}, err
+	}
+	return w.toOrderInfo(), nil
 }
 
 // WatchPositions subscribes to position changes for a single contract.
@@ -133,6 +201,8 @@ func (s *StreamClient) UnsubscribePrivate(topic string) error {
 // orderPushWire mirrors a /contractMarket/tradeOrders push. `type` is the
 // lifecycle event (received/open/match/filled/canceled/update); `status` is
 // the resulting order state (match/open/done). ts/orderTime are nanoseconds.
+// matchSize/matchPrice/tradeId/liquidity are set on "match" frames only
+// (empty string otherwise — hence flexDecimal). Sizes are in contracts.
 type orderPushWire struct {
 	OrderID    string          `json:"orderId"`
 	Symbol     string          `json:"symbol"`
@@ -146,6 +216,9 @@ type orderPushWire struct {
 	RemainSize decimal.Decimal `json:"remainSize"`
 	ClientOid  string          `json:"clientOid"`
 	TradeID    string          `json:"tradeId"`
+	MatchSize  flexDecimal     `json:"matchSize"`
+	MatchPrice flexDecimal     `json:"matchPrice"`
+	Liquidity  string          `json:"liquidity"`
 	OrderTime  int64           `json:"orderTime"`
 	Ts         int64           `json:"ts"`
 }
@@ -164,6 +237,12 @@ func (w orderPushWire) toOrderInfo() futurestypes.OrderInfo {
 		IsActive:      w.Status == "open" || w.Status == "match",
 		UpdatedAtMs:   nsToMs(w.Ts),
 		CreatedAtMs:   nsToMs(w.OrderTime),
+		EventType:     w.Type,
+		TradeID:       w.TradeID,
+		MatchSize:     w.MatchSize.Decimal,
+		MatchPrice:    w.MatchPrice.Decimal,
+		Liquidity:     futurestypes.Liquidity(w.Liquidity),
+		TsNs:          w.Ts,
 	}
 }
 

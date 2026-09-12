@@ -566,6 +566,32 @@ Broker + UTA/API v3.0 deferred) · **v3.0** = UTA / unified account (future).
   start), and a generic `context.Canceled` classifier in high-level execution
   (restart/shutdown cancels no longer logged as "API error").
 
+- **Order lifecycle → exact fills (additive, unreleased after `v2.7.0`;
+  consumed by Repo B `kucoin/spot` + `kucoin/futures` `WatchOrderEvents`):**
+  - `spot/types.OrderInfo` / `futures/types.OrderInfo` — new WS-only fields
+    `EventType` (`type`: received/open/match/filled/canceled/update),
+    `TradeID`, `MatchSize`/`MatchPrice` (this execution; contracts on
+    futures), `Liquidity` (maker/taker; `spot/types.Liquidity` added),
+    `TsNs` (raw matching-engine ns). `DealSize`/`FilledSize` stay the
+    cumulative. Non-match frames ship `matchSize`/`matchPrice` as `""` —
+    decoded by a tolerant `flexDecimal` (empty/null → zero) so the frame is
+    not dropped.
+  - `spot`/`futures` `StreamClient.WatchOrdersWithOptions(ctx, handler,
+    OrderStreamOptions{OnConnect})` — `WatchOrders` delegates to it.
+    `OnConnect` = `ws.Subscription.Ready`: fires on the read goroutine once
+    per (re)connect, after the subscribe op was re-sent and before the first
+    push of that socket (a REST reseed there cannot be overtaken by a push);
+    not fired when the socket is already up at subscribe time — the caller
+    seeds once after subscribing. `DecodeOrderPush(data)` exported (same
+    decoder the watcher uses; for recorded-frame tests / replay).
+  - `internal/ws` — `Subscription.Ready` hook (`notifyReady` before
+    `readLoop`). Test `TestConn_ReadyBeforeFirstPushOnEachConnect`.
+  - Tests: `spot/stream_private_test.go`, `futures/stream_private_test.go`
+    (match / filled / canceled frames per the documented field list).
+  - Known, NOT changed: `orderTime` is treated as ns (docs-new say ms for
+    the current channel generation, old docs examples are ns) — verify on a
+    live frame before relying on `CreatedAtMs` from the push.
+
 ### 🔧 In progress
 
 - **v2.5 — remaining sections** on top of the stable Futures + Spot core

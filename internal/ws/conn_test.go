@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -226,5 +227,70 @@ func TestConn_ResubscribeOnReconnect(t *testing.T) {
 	// discards stale state.
 	if atomic.LoadInt64(&resetCount) < 2 {
 		t.Fatalf("resetCount = %d, want >= 2", atomic.LoadInt64(&resetCount))
+	}
+}
+
+// TestConn_ReadyBeforeFirstPushOnEachConnect locks the Ready contract: the
+// hook fires once per (re)connect, after the subscribe op was sent, and
+// strictly before the first push of that connection reaches the handler.
+// The mock drops the socket after every push, so the observed sequence must
+// alternate ready → push → ready → push.
+func TestConn_ReadyBeforeFirstPushOnEachConnect(t *testing.T) {
+	var m = newMockServer(t)
+	atomic.StoreInt64(&m.dropAfterPush, 1)
+	var conn = NewConn(testConfig(m.tokenProvider(0)), nil, nil)
+	defer func() { _ = conn.Close() }()
+
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	conn.Start(ctx)
+
+	var mu sync.Mutex
+	var seq []string
+	var pushes = make(chan struct{}, 16)
+	var sub = &Subscription{
+		Topic: "/spotMarket/tradeOrders",
+		Handler: func(string, string, []byte) {
+			mu.Lock()
+			seq = append(seq, "push")
+			mu.Unlock()
+			pushes <- struct{}{}
+		},
+		Ready: func() {
+			mu.Lock()
+			seq = append(seq, "ready")
+			mu.Unlock()
+		},
+	}
+	if err := conn.Subscribe(sub); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	var i int
+	for i = 0; i < 2; i++ {
+		select {
+		case <-pushes:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only got %d push(es); reconnect/resubscribe failed", i)
+		}
+	}
+
+	mu.Lock()
+	var got []string = append([]string(nil), seq...)
+	mu.Unlock()
+	if len(got) < 4 || got[0] != "ready" {
+		t.Fatalf("sequence = %v, want ready first and at least ready,push,ready,push", got)
+	}
+	var readies int
+	for i = 0; i < len(got); i++ {
+		if got[i] == "ready" {
+			readies++
+		}
+		if got[i] == "push" && got[i-1] != "ready" {
+			t.Fatalf("push at %d not preceded by ready: %v", i, got)
+		}
+	}
+	if readies < 2 {
+		t.Fatalf("ready fired %d time(s), want >= 2 (once per connection)", readies)
 	}
 }

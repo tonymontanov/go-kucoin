@@ -19,6 +19,9 @@ NAMES used by the SDK (stable contract — see README):
 	kucoin_ws_ping_failed_total
 	kucoin_ws_token_failed_total
 	kucoin_ws_resyncs_total
+	kucoin_ws_push_decode_failed_total   (v2.8.1: a private tradeOrders push
+	                                      whose `data` did not decode — the
+	                                      frame is dropped and logged at Warn)
 
 The factory pattern (CounterFactory) lets embedders attach labels (e.g.
 exchange="kucoin", profile="futures") at construction time without the SDK

@@ -16,6 +16,7 @@ STABLE COUNTER NAMES (the SDK contract — see README):
 	kucoin_ws_ping_failed_total
 	kucoin_ws_token_failed_total
 	kucoin_ws_resyncs_total
+	kucoin_ws_push_decode_failed_total  (v2.8.1)
 */
 
 package kucoin

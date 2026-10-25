@@ -171,6 +171,10 @@ type Conn struct {
 	socket *websocket.Conn
 	closed bool
 	cancel context.CancelFunc
+	// unknownTopics — topics of pushes that arrived without a subscription,
+	// remembered so the first occurrence of each is logged at Warn and the
+	// rest at Debug (see noteUnknownTopic). Bounded by unknownTopicsCap.
+	unknownTopics map[string]struct{}
 
 	writeMu sync.Mutex
 
@@ -514,7 +518,7 @@ func (c *Conn) readLoop(ctx context.Context, socket *websocket.Conn) error {
 			c.mu.RUnlock()
 			if sub == nil {
 				c.cDropped.Inc()
-				c.logger.Debug("ws: push for unknown topic", kclog.Str("topic", env.Topic))
+				c.noteUnknownTopic(env.Topic)
 				continue
 			}
 			sub.Handler(env.Topic, env.Subject, env.Data)
@@ -523,6 +527,38 @@ func (c *Conn) readLoop(ctx context.Context, socket *websocket.Conn) error {
 
 		c.handleControl(&env)
 	}
+}
+
+// unknownTopicsCap bounds the per-Conn memory of unknown topics; beyond it
+// every further unknown topic is logged at Debug only.
+const unknownTopicsCap = 64
+
+/*
+noteUnknownTopic logs a push that arrived for a topic without a subscription.
+The FIRST push of each topic is logged at Warn: a push the SDK did not ask for
+is a protocol surprise (a venue-side topic rename would otherwise drop every
+frame of a channel silently — until v2.8.1 this line was Debug and invisible
+in production). Every further push of the same topic is Debug, so a chatty
+foreign topic cannot flood the log. The counter kucoin_ws_messages_dropped_total
+is incremented by the caller for every such frame regardless of the level.
+*/
+func (c *Conn) noteUnknownTopic(topic string) {
+	c.mu.Lock()
+	var _, seen = c.unknownTopics[topic]
+	if !seen && len(c.unknownTopics) < unknownTopicsCap {
+		if c.unknownTopics == nil {
+			c.unknownTopics = make(map[string]struct{}, 4)
+		}
+		c.unknownTopics[topic] = struct{}{}
+	} else if !seen {
+		seen = true // the memory is full — treat as already reported
+	}
+	c.mu.Unlock()
+	if seen {
+		c.logger.Debug("ws: push for unknown topic", kclog.Str("topic", topic))
+		return
+	}
+	c.logger.Warn("ws: push for unknown topic dropped (first occurrence)", kclog.Str("topic", topic))
 }
 
 // handleControl logs ack / pong / error / welcome frames that reach the

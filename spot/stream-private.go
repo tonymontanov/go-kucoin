@@ -35,6 +35,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/tonymontanov/go-kucoin/v2/internal/codec"
+	"github.com/tonymontanov/go-kucoin/v2/internal/kccommon"
 	"github.com/tonymontanov/go-kucoin/v2/internal/ws"
 	spottypes "github.com/tonymontanov/go-kucoin/v2/spot/types"
 	roottypes "github.com/tonymontanov/go-kucoin/v2/types"
@@ -131,17 +132,41 @@ func (s *StreamClient) WatchOrdersWithOptions(ctx context.Context, handler func(
 	return conn.Subscribe(&ws.Subscription{
 		Topic:          "/spotMarket/tradeOrders",
 		PrivateChannel: true,
-		Handler: func(_, _ string, data []byte) {
-			var o spottypes.OrderInfo
-			var perr error
-			o, perr = DecodeOrderPush(data)
-			if perr != nil {
-				return
-			}
-			handler(&o)
-		},
-		Ready: opts.OnConnect,
+		Handler:        s.orderPushHandler(handler),
+		Ready:          opts.OnConnect,
 	})
+}
+
+// metricPushDecodeFailed — counter of private tradeOrders pushes dropped by
+// orderPushHandler because `data` did not decode.
+const metricPushDecodeFailed = "kucoin_ws_push_decode_failed_total"
+
+// pushDataLogLimit caps the raw `data` bytes echoed into the warn line of a
+// dropped push.
+const pushDataLogLimit = 512
+
+/*
+orderPushHandler builds the Subscription.Handler of the tradeOrders topic. A
+frame whose `data` does not decode is DROPPED — visibly: one Warn line with the
+raw payload (truncated to pushDataLogLimit) and the counter
+kucoin_ws_push_decode_failed_total. Before v2.8.1 the drop was silent (see the
+futures twin for the incident that motivated it). Runs on the read-loop
+goroutine; only the failure branch allocates.
+*/
+func (s *StreamClient) orderPushHandler(handler func(*spottypes.OrderInfo)) func(topic, subject string, data []byte) {
+	return func(topic, subject string, data []byte) {
+		var o spottypes.OrderInfo
+		var perr error
+		o, perr = DecodeOrderPush(data)
+		if perr != nil {
+			s.cDecodeFailed.Inc()
+			s.c.logger().Warn("ws: tradeOrders push dropped: decode failed",
+				logStr("topic", topic), logStr("subject", subject),
+				logStr("data", kccommon.TruncateForLog(data, pushDataLogLimit)), logErr(perr))
+			return
+		}
+		handler(&o)
+	}
 }
 
 // DecodeOrderPush decodes the `data` payload of a /spotMarket/tradeOrders

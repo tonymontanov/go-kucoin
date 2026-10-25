@@ -41,6 +41,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	kucoin "github.com/tonymontanov/go-kucoin/v2"
 	"github.com/tonymontanov/go-kucoin/v2/internal/kccommon/orderbook"
 	"github.com/tonymontanov/go-kucoin/v2/internal/rest"
 	"github.com/tonymontanov/go-kucoin/v2/internal/ws"
@@ -59,11 +60,15 @@ type StreamClient struct {
 	mu          sync.Mutex
 	publicConn  *ws.Conn
 	privateConn *ws.Conn
+
+	// cDecodeFailed — kucoin_ws_push_decode_failed_total: private tradeOrders
+	// pushes dropped because `data` did not decode (see orderPushHandler).
+	cDecodeFailed kucoin.Counter
 }
 
 // newStreamClient wires the sub-client to its parent.
 func newStreamClient(c *Client) *StreamClient {
-	return &StreamClient{c: c}
+	return &StreamClient{c: c, cDecodeFailed: c.config().Metrics.Counter(metricPushDecodeFailed)}
 }
 
 // Close tears down both WS connections. Safe to call multiple times.

@@ -41,6 +41,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	futurestypes "github.com/tonymontanov/go-kucoin/v2/futures/types"
+	"github.com/tonymontanov/go-kucoin/v2/internal/kccommon"
 	"github.com/tonymontanov/go-kucoin/v2/internal/ws"
 	roottypes "github.com/tonymontanov/go-kucoin/v2/types"
 )
@@ -99,17 +100,44 @@ func (s *StreamClient) WatchOrdersWithOptions(ctx context.Context, handler func(
 	return conn.Subscribe(&ws.Subscription{
 		Topic:          "/contractMarket/tradeOrders",
 		PrivateChannel: true,
-		Handler: func(_, _ string, data []byte) {
-			var o futurestypes.OrderInfo
-			var perr error
-			o, perr = DecodeOrderPush(data)
-			if perr != nil {
-				return
-			}
-			handler(&o)
-		},
-		Ready: opts.OnConnect,
+		Handler:        s.orderPushHandler(handler),
+		Ready:          opts.OnConnect,
 	})
+}
+
+// metricPushDecodeFailed — counter of private tradeOrders pushes dropped by
+// orderPushHandler because `data` did not decode.
+const metricPushDecodeFailed = "kucoin_ws_push_decode_failed_total"
+
+// pushDataLogLimit caps the raw `data` bytes echoed into the warn line of a
+// dropped push: enough to see the offending field, not enough to flood logs.
+const pushDataLogLimit = 512
+
+/*
+orderPushHandler builds the Subscription.Handler of the tradeOrders topic. A
+frame whose `data` does not decode is DROPPED — and the drop is made visible:
+one Warn line with the raw payload (truncated to pushDataLogLimit) and the
+counter kucoin_ws_push_decode_failed_total. Before v2.8.1 the drop was silent,
+so a consumer could not tell "the venue never pushed the execution" from "the
+SDK could not decode the frame" (sleipnir core, KuCoin XBTUSDTM 24–25.10.2026:
+2.6 % of executions missing from the private stream, source undetermined).
+Runs on the read-loop goroutine: the failure branch is the only one that
+allocates, and it is not expected to run in a healthy session.
+*/
+func (s *StreamClient) orderPushHandler(handler func(*futurestypes.OrderInfo)) func(topic, subject string, data []byte) {
+	return func(topic, subject string, data []byte) {
+		var o futurestypes.OrderInfo
+		var perr error
+		o, perr = DecodeOrderPush(data)
+		if perr != nil {
+			s.cDecodeFailed.Inc()
+			s.c.logger().Warn("ws: tradeOrders push dropped: decode failed",
+				logStr("topic", topic), logStr("subject", subject),
+				logStr("data", kccommon.TruncateForLog(data, pushDataLogLimit)), logErr(perr))
+			return
+		}
+		handler(&o)
+	}
 }
 
 // DecodeOrderPush decodes the `data` payload of a /contractMarket/tradeOrders
@@ -257,18 +285,18 @@ type positionPushWire struct {
 	Symbol           string           `json:"symbol"`
 	CurrentQty       *decimal.Decimal `json:"currentQty"`
 	AvgEntryPrice    decimal.Decimal  `json:"avgEntryPrice"`
-	MarkPrice        decimal.Decimal `json:"markPrice"`
-	MarkValue        decimal.Decimal `json:"markValue"`
-	UnrealisedPnl    decimal.Decimal `json:"unrealisedPnl"`
-	LiquidationPrice decimal.Decimal `json:"liquidationPrice"`
-	BankruptPrice    decimal.Decimal `json:"bankruptPrice"`
-	PosMargin        decimal.Decimal `json:"posMargin"`
-	PosCost          decimal.Decimal `json:"posCost"`
-	RealLeverage     decimal.Decimal `json:"realLeverage"`
-	MaintMarginReq   decimal.Decimal `json:"maintMarginReq"`
-	RiskLimit        decimal.Decimal `json:"riskLimit"`
-	SettleCurrency   string          `json:"settleCurrency"`
-	CrossMode        bool            `json:"crossMode"`
+	MarkPrice        decimal.Decimal  `json:"markPrice"`
+	MarkValue        decimal.Decimal  `json:"markValue"`
+	UnrealisedPnl    decimal.Decimal  `json:"unrealisedPnl"`
+	LiquidationPrice decimal.Decimal  `json:"liquidationPrice"`
+	BankruptPrice    decimal.Decimal  `json:"bankruptPrice"`
+	PosMargin        decimal.Decimal  `json:"posMargin"`
+	PosCost          decimal.Decimal  `json:"posCost"`
+	RealLeverage     decimal.Decimal  `json:"realLeverage"`
+	MaintMarginReq   decimal.Decimal  `json:"maintMarginReq"`
+	RiskLimit        decimal.Decimal  `json:"riskLimit"`
+	SettleCurrency   string           `json:"settleCurrency"`
+	CrossMode        bool             `json:"crossMode"`
 }
 
 func (w positionPushWire) toPositionInfo(symbol string) futurestypes.PositionInfo {

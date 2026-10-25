@@ -592,6 +592,27 @@ Broker + UTA/API v3.0 deferred) · **v3.0** = UTA / unified account (future).
     the current channel generation, old docs examples are ns) — verify on a
     live frame before relying on `CreatedAtMs` from the push.
 
+- **v2.8.1 (25.10.2026) — dropped private pushes are visible.** Motivation:
+  sleipnir core on KuCoin Futures XBTUSDTM (24–25.10.2026) missed 2.6 % of
+  its own executions in the private stream and could not tell whether the
+  venue never pushed them or the SDK dropped them — both drop points were
+  silent. Additive, no signature changes:
+  - `futures` / `spot` `StreamClient.orderPushHandler` (the tradeOrders
+    `Subscription.Handler`): a frame whose `data` does not decode is still
+    dropped, but now logs **Warn** `ws: tradeOrders push dropped: decode
+    failed` with `topic`, `subject`, the raw `data` (cut to 512 bytes,
+    `internal/kccommon.TruncateForLog`) and the decode error, and increments
+    the new counter **`kucoin_ws_push_decode_failed_total`** (added to the
+    stable name list in `metrics.go` / `internal/kcmet`).
+  - `internal/ws.Conn.noteUnknownTopic`: a push for a topic without a
+    subscription is logged at **Warn** on the first occurrence of each topic
+    (was Debug — invisible in production) and at Debug afterwards; the
+    per-Conn topic memory is capped at 64. `kucoin_ws_messages_dropped_total`
+    keeps counting every such frame.
+  - Tests: `futures/stream_push_diagnostics_test.go`,
+    `spot/stream_push_diagnostics_test.go`,
+    `TestConn_UnknownTopicWarnOncePerTopic`.
+
 ### 🔧 In progress
 
 - **v2.5 — remaining sections** on top of the stable Futures + Spot core

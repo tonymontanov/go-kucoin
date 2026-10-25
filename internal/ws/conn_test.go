@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/tonymontanov/go-kucoin/v2/internal/kclog"
 )
 
 // mockServer is a minimal KuCoin-like WS endpoint for tests.
@@ -292,5 +295,60 @@ func TestConn_ReadyBeforeFirstPushOnEachConnect(t *testing.T) {
 	}
 	if readies < 2 {
 		t.Fatalf("ready fired %d time(s), want >= 2 (once per connection)", readies)
+	}
+}
+
+// recordingLogger — kclog.Logger that counts lines per level and keeps the
+// topics of warn lines.
+type recordingLogger struct {
+	mu     sync.Mutex
+	debugs int
+	warns  []string
+}
+
+func (l *recordingLogger) Debug(string, ...kclog.Field) { l.mu.Lock(); l.debugs++; l.mu.Unlock() }
+func (l *recordingLogger) Info(string, ...kclog.Field)  {}
+func (l *recordingLogger) Error(string, ...kclog.Field) {}
+func (l *recordingLogger) Warn(_ string, f ...kclog.Field) {
+	var topic string
+	var i int
+	for i = 0; i < len(f); i++ {
+		if f[i].Key == "topic" {
+			topic = f[i].Str
+		}
+	}
+	l.mu.Lock()
+	l.warns = append(l.warns, topic)
+	l.mu.Unlock()
+}
+
+// v2.8.1: a push for a topic without a subscription is logged at Warn the
+// first time per topic (a protocol surprise worth a human's eye) and at Debug
+// afterwards (no flooding); the memory of topics is bounded.
+func TestConn_UnknownTopicWarnOncePerTopic(t *testing.T) {
+	var logger *recordingLogger = &recordingLogger{}
+	var c *Conn = NewConn(testConfig(nil), logger, nil)
+	c.noteUnknownTopic("/contractMarket/tradeOrders:XBTUSDTM")
+	c.noteUnknownTopic("/contractMarket/tradeOrders:XBTUSDTM")
+	c.noteUnknownTopic("/contractMarket/tradeOrders:ETHUSDTM")
+	logger.mu.Lock()
+	var warns []string = append([]string(nil), logger.warns...)
+	var debugs int = logger.debugs
+	logger.mu.Unlock()
+	if len(warns) != 2 || warns[0] != "/contractMarket/tradeOrders:XBTUSDTM" || warns[1] != "/contractMarket/tradeOrders:ETHUSDTM" {
+		t.Fatalf("want one warn per distinct topic, got %v", warns)
+	}
+	if debugs != 1 {
+		t.Fatalf("repeat of a known topic must be debug: debugs=%d", debugs)
+	}
+	var i int
+	for i = 0; i < unknownTopicsCap+5; i++ {
+		c.noteUnknownTopic("/x/" + strconv.Itoa(i))
+	}
+	c.mu.RLock()
+	var remembered int = len(c.unknownTopics)
+	c.mu.RUnlock()
+	if remembered != unknownTopicsCap {
+		t.Fatalf("unknown-topic memory must stay bounded: %d", remembered)
 	}
 }

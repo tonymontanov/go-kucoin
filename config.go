@@ -174,9 +174,11 @@ type WsConfig struct {
 	ReadTimeout time.Duration
 	// WriteTimeout — write deadline. Default 5s.
 	WriteTimeout time.Duration
-	// PingInterval — client→server ping interval. Default 15s and used as
-	// a FALLBACK only: the bullet response carries the authoritative
-	// pingInterval, which the WS layer honours when present.
+	// PingInterval — client→server ping interval. Default 15s. The bullet
+	// response's pingInterval (typically 18s) is an upper bound: the client
+	// pings every min(bullet, PingInterval). Set it together with a short
+	// ReadTimeout (ping + a few seconds) to detect a stalled connection
+	// quickly — every ping is answered by a pong frame.
 	PingInterval time.Duration
 
 	// ReconnectInitialBackoff — first sleep after a connection failure.

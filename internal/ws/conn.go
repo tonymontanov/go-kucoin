@@ -11,8 +11,10 @@ RESPONSIBILITIES:
   - obtain a fresh bullet token on every (re)connect via TokenProvider;
   - dial <endpoint>?token=…&connectId=… and wait for the {"type":"welcome"}
     greeting;
-  - heartbeat: JSON {"id":…,"type":"ping"} on the server-driven ping
-    interval (TokenInfo.PingInterval, falling back to cfg.PingInterval);
+  - heartbeat: JSON {"id":…,"type":"ping"} every
+    min(TokenInfo.PingInterval, cfg.PingInterval) — the server interval is
+    an upper bound, a shorter configured one lets the caller detect a
+    stalled connection faster (with ReadTimeout = ping + a few seconds);
   - subscribe / unsubscribe with a registry keyed by topic string that
     survives reconnects;
   - resubscribe every registered topic after each successful (re)connect,
@@ -145,8 +147,9 @@ type Config struct {
 	ReadTimeout time.Duration
 	// WriteTimeout — write deadline.
 	WriteTimeout time.Duration
-	// PingInterval — fallback client ping cadence used only when the bullet
-	// response does not carry a server interval.
+	// PingInterval — client ping cadence. The bullet response's server
+	// interval is an upper bound: the effective cadence is the shorter of
+	// the two (effectivePingInterval). Zero — the server interval alone.
 	PingInterval time.Duration
 	// ReconnectInitialBackoff — first sleep after a connection failure.
 	ReconnectInitialBackoff time.Duration
@@ -290,6 +293,33 @@ func (c *Conn) Close() error {
 	return nil
 }
 
+// effectivePingInterval — the client ping cadence: the shorter of the
+// server interval from the bullet response and the configured one (either
+// may be zero = not set). Before, the server interval always won, so a
+// caller could not ping faster than ~18s and a ReadTimeout shorter than that
+// reconnected healthy quiet connections.
+func effectivePingInterval(server time.Duration, configured time.Duration) time.Duration {
+	if server <= 0 {
+		return configured
+	}
+	if configured > 0 && configured < server {
+		return configured
+	}
+	return server
+}
+
+// healthyConnectionSpan — a connection that lived at least this long is
+// considered healthy: the next disconnect starts the backoff ladder from the
+// beginning. Without it the backoff only grew over the process lifetime, and
+// after a handful of reconnects every later one waited ReconnectMaxBackoff.
+const healthyConnectionSpan time.Duration = 30 * time.Second
+
+// connectionWasHealthy reports whether a connection that lived for lived
+// resets the reconnect backoff.
+func connectionWasHealthy(lived time.Duration) bool {
+	return lived >= healthyConnectionSpan
+}
+
 // supervise is the connect → run → backoff loop. Exits on ctx.Done.
 func (c *Conn) supervise(ctx context.Context) {
 	var backoff time.Duration = c.cfg.ReconnectInitialBackoff
@@ -298,9 +328,16 @@ func (c *Conn) supervise(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		var started time.Time = time.Now()
 		var err error = c.connectAndRun(ctx)
 		if ctx.Err() != nil {
 			return
+		}
+		// A connection that lived long enough was healthy: restart the
+		// backoff ladder instead of continuing from an outage long ago.
+		if connectionWasHealthy(time.Since(started)) {
+			backoff = c.cfg.ReconnectInitialBackoff
+			attempt = 0
 		}
 		if err != nil {
 			c.logger.Warn("ws: connection error, will reconnect",
@@ -395,10 +432,7 @@ func (c *Conn) connectAndRun(ctx context.Context) error {
 		}
 	}
 
-	var pingInterval time.Duration = info.PingInterval
-	if pingInterval <= 0 {
-		pingInterval = c.cfg.PingInterval
-	}
+	var pingInterval time.Duration = effectivePingInterval(info.PingInterval, c.cfg.PingInterval)
 
 	var loopCtx context.Context
 	var loopCancel context.CancelFunc

@@ -116,6 +116,12 @@ futures.Client (profile)            <- layer 2 (section specifics)
 
 ## 3. Roadmap
 
+- ✅ **v2.9.0** (2026-11-24) — connection liveness: REST HTTP/2 health check (PING after 1 s
+  without incoming frames, connection closed if unanswered in 2 s); WS ping cadence is
+  min(bullet `pingInterval`, `WsConfig.PingInterval`) — before, the bullet value always won and a
+  short `ReadTimeout` reconnected quiet sockets; reconnect backoff restarts after a connection that
+  lived ≥ 30 s. The desk core sets `WS.PingInterval` 5 s + `WS.ReadTimeout` 8 s.
+
 Phasing: **v1.0** = Futures (USD-M perpetuals) · **v2.0** = Spot ·
 **v2.5** = remaining classic sections (Phase A Margin · B Account/Funding ·
 C Earn + VIP Lending · D Sub-Account · E Convert · F Affiliate + Copy-Trading;
